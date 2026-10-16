@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Temperature overview · Plantation Weather Monitor</title>
+  <meta name="description" content="Daily actual and forecast temperature across all monitored regions.">
+  <link rel="stylesheet" href="dashboard.css?v=20260928-options">
+  <link rel="stylesheet" href="sidebar.css?v=20261008-accordion">
+  <link rel="stylesheet" href="temperature.css?v=20260928">
+</head>
+<body>
+  <header><div><p class="eyebrow">Temperature intelligence</p><h1>Temperature overview</h1></div><div class="header-meta"><span class="live-dot"></span><span id="coverage">Loading temperature data…</span></div></header>
+  <main class="temperature-main">
+    <section class="toolbar"><label>Region<select id="region"></select></label><div class="segmented" role="group" aria-label="Time range"><button data-range="30">30 days</button><button data-range="90" class="active">90 days</button><button data-range="365">1 year</button></div></section>
+    <section class="kpis temperature-kpis" aria-label="Selected region temperature forecast"><article><span>Forecast average</span><strong id="forecastAverage">—</strong><small>daily mean temperature</small></article><article><span>Forecast minimum</span><strong id="forecastMinimum">—</strong><small>lowest daily mean</small></article><article><span>Forecast maximum</span><strong id="forecastMaximum">—</strong><small>highest daily mean</small></article><article><span>Forecast coverage</span><strong id="forecastDays">—</strong><small>available days</small></article></section>
+    <section class="panel temperature-series-panel"><div class="panel-head"><div><p class="eyebrow">Actual + forecast</p><h2>Daily mean 2 m air temperature (°C)</h2></div><div class="legend"><span><i class="temperature-actual"></i>Actual</span><span><i class="temperature-forecast"></i>Forecast</span></div></div><div id="temperatureSeries" class="temperature-series" role="img" aria-label="Daily mean temperature actual and forecast chart"></div></section>
+    <div class="temperature-grid">
+      <section class="panel"><div class="panel-head"><div><p class="eyebrow">Regional comparison</p><h2>Forecast daily mean temperature (°C)</h2></div></div><div class="table-wrap temperature-table-wrap"><table><thead><tr><th>Region</th><th>Average</th><th>Minimum</th><th>Maximum</th></tr></thead><tbody id="temperatureTable"></tbody></table></div></section>
+      <section class="panel"><div class="panel-head"><div><p class="eyebrow">Long-range context</p><h2>Monthly average temperature (°C)</h2></div><span id="monthlyLabel"></span></div><div id="monthlyTemperature" class="monthly-temperature" role="img" aria-label="Monthly average temperature history"></div></section>
+    </div>
+    <div id="error" class="error" hidden></div>
+  </main>
+  <footer>Daily mean 2 m air temperature: Open-Meteo • Overall countries are simple averages across monitored regional locations</footer>
+  <script src="sidebar.js?v=20261008-accordion3"></script><script src="temperature.js?v=20260928"></script>
+</body>
+</html>

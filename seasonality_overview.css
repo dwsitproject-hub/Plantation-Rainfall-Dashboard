@@ -1,0 +1,23 @@
+.overview-main{max-width:1500px}
+.overview-intro{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:16px}
+.overview-intro p:not(.eyebrow){max-width:780px;margin:5px 0 0;color:var(--muted);font-size:.94rem}
+.country-jump{display:flex;gap:8px;white-space:nowrap}
+.country-jump a{display:inline-block;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:#075d58;text-decoration:none;font-size:.86rem;font-weight:700}
+.country-jump a:hover,.country-jump a:focus-visible{border-color:var(--teal);background:#e8f8f5}
+.overview-controls{display:flex;align-items:center;justify-content:space-between;gap:20px;position:sticky;top:0;z-index:5;box-shadow:0 5px 18px #17384010}
+.overview-controls .baseline-controls{margin-left:0}
+.overview-filter-group{display:flex;align-items:end;gap:12px}.overview-filter-group>label{color:var(--muted);font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase}.overview-filter-group select{display:block;min-width:220px;margin-top:5px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:600 .82rem inherit}
+.overview-controls .legend{flex-wrap:wrap;justify-content:flex-end}
+.country-section{scroll-margin-top:110px;margin-top:27px}
+.country-heading{display:flex;align-items:baseline;gap:12px;margin:0 0 10px}
+.country-heading h2{font-size:1.45rem}
+.country-heading span{color:var(--muted);font-size:.86rem}
+.region-card{margin-bottom:12px}
+.region-card-head{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--line);padding-bottom:9px;margin-bottom:15px}
+.region-card-head h3{margin:0;font-size:1.03rem}
+.region-card-head span{font-size:.75rem;color:var(--muted)}
+.region-card .season-grid h4{margin:0 0 7px;color:var(--muted);font-size:.84rem}
+.region-card .season-grid{gap:22px}
+.region-card .season-chart{height:230px}
+@media(max-width:900px){.overview-controls{position:static;align-items:flex-start;flex-direction:column}.overview-controls .legend{justify-content:flex-start}.overview-filter-group{align-items:stretch;flex-direction:column;width:100%}.overview-filter-group select{width:100%}}
+@media(max-width:620px){.overview-intro{align-items:flex-start;flex-direction:column}.country-jump{flex-wrap:wrap}.overview-controls .baseline-controls{width:100%}.region-card .season-chart{height:210px}}

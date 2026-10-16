@@ -1,0 +1,25 @@
+.comparison-main{max-width:1600px}
+.comparison-intro{display:flex;justify-content:space-between;align-items:end;gap:24px;margin-bottom:15px}
+.comparison-intro p:not(.eyebrow){max-width:760px;margin:5px 0 0;color:var(--muted);font-size:1rem;line-height:1.55}
+.comparison-intro label{min-width:190px}
+.comparison-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px;align-items:start}
+.comparison-periods{display:grid;gap:6px;margin-bottom:12px;padding:12px 14px;color:var(--muted);font-size:.82rem;min-height:82px}
+.comparison-periods span{padding:0;border:0}
+.comparison-table-panel{padding:0;overflow:hidden}
+.comparison-section{margin:26px 0 0;min-width:0}
+.comparison-section h2{margin:0 0 12px;font-size:1.22rem;color:#244d56}
+.comparison-section h2 small{margin-left:8px;color:var(--muted);font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.comparison-table-panel .table-wrap{max-height:none}
+.comparison-table-panel table{width:100%;table-layout:fixed}
+.comparison-table-panel th,.comparison-table-panel td{padding:11px 8px;font-size:.88rem}
+.comparison-table-panel th:first-child,.comparison-table-panel td:first-child{width:24%}
+.comparison-table-panel thead th{font-size:.72rem;line-height:1.2;white-space:nowrap;letter-spacing:.025em}
+.comparison-table-panel th:not(:first-child),.comparison-table-panel td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+.comparison-table-panel th small{font-weight:500;color:#c7d9dc}
+.comparison-table-panel .country-row th{text-align:left;padding-top:15px;background:#edf4f3;color:#315f68;letter-spacing:.05em;text-transform:uppercase;font-size:.85rem}
+.comparison-table-panel .repeated-header th{background:#f8fbfb;color:#647880;font-size:.7rem;letter-spacing:.035em;white-space:nowrap;border-bottom:2px solid #dce6e7}
+.comparison-table-panel .overall-row{background:#f3f9f8;font-weight:800}
+.comparison-table-panel .wetter{color:#087d74;font-weight:700}
+.comparison-table-panel .drier{color:#b24a56;font-weight:700}
+@media(max-width:1200px){.comparison-grid{grid-template-columns:1fr}.comparison-section{max-width:1120px;margin-left:auto;margin-right:auto}.comparison-table-panel th,.comparison-table-panel td{padding:13px 15px;font-size:1rem}.comparison-table-panel thead th{font-size:.82rem}.comparison-periods{display:flex;min-height:0;gap:18px;flex-wrap:wrap;font-size:.94rem}.comparison-periods span{padding-right:18px;border-right:1px solid var(--line)}.comparison-periods span:last-child{border-right:0}}
+@media(max-width:850px){.comparison-intro{align-items:flex-start;flex-direction:column}.comparison-table-panel .table-wrap{overflow-x:auto}.comparison-table-panel table{min-width:820px;table-layout:auto}.comparison-periods{display:grid;gap:7px}.comparison-periods span{border-right:0;padding-right:0}}

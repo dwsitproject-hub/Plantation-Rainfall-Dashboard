@@ -1,0 +1,18 @@
+.temperature-main{max-width:1500px}
+.temperature-kpis{grid-template-columns:repeat(4,1fr)}
+.temperature-kpis article{border-top-color:#e07a32}
+.temperature-series{height:360px}
+.temperature-series svg,.monthly-temperature svg{width:100%;height:100%;display:block}
+.temperature-actual{background:#e07a32}.temperature-forecast{background:#3578e5}
+.temperature-actual-line{fill:none;stroke:#e07a32;stroke-width:3}
+.temperature-forecast-line{fill:none;stroke:#3578e5;stroke-width:3;stroke-dasharray:7 5}
+.temperature-dot-actual{fill:#e07a32}.temperature-dot-forecast{fill:#3578e5}
+.temperature-grid{display:grid;grid-template-columns:minmax(440px,.9fr) minmax(0,1.4fr);gap:14px;margin-top:14px;align-items:start}
+.temperature-table-wrap{max-height:460px}
+.temperature-table-wrap th:not(:first-child),.temperature-table-wrap td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+.temperature-table-wrap .country-row th{background:#edf4f3;color:#315f68;letter-spacing:.05em;font-size:.78rem;padding-top:13px}
+.temperature-table-wrap .overall-row{background:#f3f9f8;font-weight:800}
+.monthly-temperature{height:420px}
+#monthlyLabel{color:var(--muted);font-size:.78rem}
+@media(max-width:1150px){.temperature-grid{grid-template-columns:1fr}.monthly-temperature{height:300px}}
+@media(max-width:700px){.temperature-kpis{grid-template-columns:repeat(2,1fr)}.temperature-series{height:300px}}

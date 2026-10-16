@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Forecast rainfall changes · Plantation Weather Monitor</title>
+  <meta name="description" content="Day-on-day changes to rainfall forecasts across Malaysia and Indonesia.">
+  <link rel="stylesheet" href="dashboard.css?v=20260928-options">
+  <link rel="stylesheet" href="forecast_changes.css?v=20260918-revisions">
+  <link rel="stylesheet" href="sidebar.css?v=20261008-accordion">
+</head>
+<body>
+  <header><div><p class="eyebrow">Operations intelligence</p><h1>Forecast rainfall changes</h1></div><div class="header-meta"><span class="live-dot"></span><span id="coverage">Loading forecast runs…</span></div></header>
+  <nav class="page-nav" aria-label="Dashboard pages"><a href="/">Dashboard</a><a href="/weekly-seasonality.html">All regions · weekly</a><a href="/monthly-seasonality.html">All regions · monthly</a><a href="/two-week-comparison.html">Historical comparison</a><a href="/rainfall-summary.html">Jul–Sep summary</a><a href="/forecast-changes.html" aria-current="page">Forecast changes</a></nav>
+  <main class="revision-main">
+    <div class="revision-intro"><div><p class="eyebrow">Run-to-run comparison</p><p>How the rainfall forecast changed since the previous saved run, comparing the same future dates in both runs. Positive change means a wetter forecast.</p></div><span id="runDates" class="run-dates"></span></div>
+    <div id="availability" class="availability" role="status" hidden></div>
+    <section class="revision-controls panel"><label for="regionSelect">Region<select id="regionSelect"></select></label><span id="windowNote"></span></section>
+    <section class="kpis revision-kpis" aria-label="Selected region forecast change"><article><span>Previous forecast</span><strong id="previousTotal">—</strong><small id="previousLabel">Same dates</small></article><article><span>Latest forecast</span><strong id="latestTotal">—</strong><small id="latestLabel">Same dates</small></article><article><span>Change</span><strong id="deltaTotal">—</strong><small id="deltaPercent">—</small></article></section>
+    <section class="revision-grid"><article class="panel"><div class="panel-head"><div><p class="eyebrow">All regions</p><h2>Change in forecast rainfall (mm)</h2></div><span class="chart-note">Matching forecast dates</span></div><div class="revision-chart-scroll"><div id="changeChart" class="change-chart"></div></div></article><article class="panel"><div class="panel-head"><div><p class="eyebrow">Regional comparison</p><h2>Forecast revisions (mm)</h2></div></div><div class="table-wrap"><table><thead><tr><th>Region</th><th>Previous</th><th>Latest</th><th>Change</th><th>Change %</th></tr></thead><tbody id="revisionTable"></tbody></table></div></article></section>
+    <section class="panel daily-revision"><div class="panel-head"><div><p class="eyebrow">Selected region</p><h2 id="dailyTitle">Daily rainfall forecasts (mm/day)</h2></div><div class="legend"><span><i class="previous-run"></i>Previous run</span><span><i class="latest-run"></i>Latest run</span></div></div><div class="revision-chart-scroll"><div id="dailyChart" class="daily-chart"></div></div></section>
+    <div id="error" class="error" hidden></div>
+  </main>
+  <footer>Data: Open-Meteo • Forecast revisions are saved when the rainfall update runs</footer>
+  <script src="sidebar.js?v=20261008-accordion3"></script><script src="forecast_changes.js?v=20260927-thailand"></script>
+</body>
+</html>

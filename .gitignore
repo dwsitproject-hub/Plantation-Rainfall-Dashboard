@@ -1,0 +1,9 @@
+sap_credentials.py
+*.csv
+*.pdf
+*.log
+*.json
+*.gz
+__pycache__/
+.weather_update.lock
+.dashboard_data_cache.signature

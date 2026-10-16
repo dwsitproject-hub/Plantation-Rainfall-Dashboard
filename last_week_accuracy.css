@@ -1,0 +1,35 @@
+.accuracy-main{max-width:1560px;padding-top:17px}
+.accuracy-main .summary-intro{margin-bottom:12px}
+.accuracy-main .summary-intro p:not(.eyebrow){max-width:none;font-size:.88rem;line-height:1.4}
+.accuracy-grid{display:grid;grid-template-columns:minmax(575px,1.12fr) minmax(390px,1fr);gap:14px;align-items:start}
+.accuracy-table-panel{min-width:0;margin:0;padding:0;overflow:hidden}
+.accuracy-table-panel .table-wrap{max-height:645px;overflow:auto}
+.accuracy-table-panel table{min-width:0;width:100%;table-layout:fixed}
+.accuracy-table-panel th,.accuracy-table-panel td{padding:7px 11px;font-size:.81rem;line-height:1.25}
+.accuracy-table-panel thead th{position:sticky;top:0;z-index:2;background:#fff;font-size:.69rem;letter-spacing:0;white-space:nowrap}
+.accuracy-table-panel th:first-child,.accuracy-table-panel td:first-child{width:39%;text-align:left}
+.accuracy-table-panel th:not(:first-child),.accuracy-table-panel td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+.accuracy-table-panel .country-row th{padding:9px 11px;font-size:.72rem}
+.accuracy-table-panel .selected-row{background:#e8f5f2}
+.accuracy-table-panel .overall-row{font-weight:800}
+.accuracy-table-panel .region-button{border:0;background:none;color:inherit;font:inherit;text-align:left;padding:0;cursor:pointer}
+.accuracy-table-panel .region-button:hover,.accuracy-table-panel .region-button:focus-visible{color:#087d74;text-decoration:underline}
+.accuracy-chart-panel{min-width:0;padding:17px;position:sticky;top:14px}
+.accuracy-chart-head{display:block}
+.accuracy-chart-head h2{font-size:1.04rem;margin-top:3px;line-height:1.25}
+.accuracy-chart-head label{display:block;margin-top:12px;font-size:.75rem}
+.accuracy-chart-head label span{display:block;margin-bottom:5px}
+.accuracy-chart-head select{min-width:0;width:100%;padding:7px 10px;font-size:.85rem;margin-top:0}
+.accuracy-legend{display:flex;gap:20px;color:var(--muted);font-size:.76rem;margin:13px 0 2px}
+.accuracy-legend i{display:inline-block;vertical-align:middle;width:24px;margin-right:6px;border-top:3px solid #14a99d}
+.accuracy-legend .forecast-line{border-color:#d79530;border-top-style:dashed}
+.accuracy-chart{height:315px;position:relative}
+.accuracy-chart svg{display:block;width:100%;height:100%}
+.accuracy-chart-note{font-size:.8rem;color:var(--muted);line-height:1.45;margin:8px 0 0;min-height:32px}
+.accuracy-availability{border-left:4px solid #d79530;background:#fff8e9;color:#675525;padding:9px 12px;border-radius:6px;font-size:.82rem;margin-bottom:12px}
+.accuracy-note{margin:12px 4px 0;color:var(--muted);font-size:.81rem}
+.error-high{color:#b54c50;font-weight:800}.error-low{color:#137f77;font-weight:800}.unavailable{color:var(--muted)}
+.accuracy-tooltip{position:fixed;z-index:50;pointer-events:none;display:none;min-width:170px;padding:9px 11px;border-radius:7px;background:#15313a;color:#fff;box-shadow:0 8px 28px #0b253044;font-size:.77rem}
+.accuracy-tooltip.show{display:block}.accuracy-tooltip strong,.accuracy-tooltip span{display:block}.accuracy-tooltip span{margin-top:3px}
+@media(max-width:1100px){.accuracy-grid{grid-template-columns:1fr}.accuracy-chart-panel{position:static;grid-row:1}.accuracy-table-panel .table-wrap{max-height:550px}}
+@media(max-width:650px){.accuracy-main{padding:14px}.accuracy-chart{height:260px}.accuracy-table-panel .table-wrap{overflow:auto}.accuracy-table-panel table{min-width:570px}}

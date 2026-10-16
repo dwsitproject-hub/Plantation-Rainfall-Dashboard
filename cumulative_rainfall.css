@@ -1,0 +1,12 @@
+.cumulative-main{max-width:1500px}
+.cumulative-intro{margin-bottom:17px}.cumulative-intro p:not(.eyebrow){max-width:900px;color:var(--muted);line-height:1.55;margin:5px 0 0}
+.cumulative-controls{display:grid;grid-template-columns:1.5fr repeat(3,1fr);gap:16px;align-items:start;margin-bottom:14px}
+.cumulative-controls label{min-width:0}.cumulative-controls select{width:100%;min-width:0}
+.cumulative-head{align-items:flex-start}.cumulative-head h2{font-size:1.3rem}.period-note{margin:5px 0 0;color:var(--muted);font-size:.85rem}
+.cumulative-chart{height:500px}.cumulative-chart svg{display:block;width:100%;height:100%}
+.cumulative-current{fill:none;stroke:#14a99d;stroke-width:4}.cumulative-average{fill:none;stroke:#dd8b17;stroke-width:3;stroke-dasharray:7 5}.cumulative-current-dot{fill:#14a99d}.cumulative-average-dot{fill:#fff;stroke:#dd8b17;stroke-width:2}
+.cumulative-forecast{fill:none;stroke:#14a99d;stroke-width:4;stroke-dasharray:9 7}.cumulative-forecast-dot{fill:#fff;stroke:#14a99d;stroke-width:2}.actual-boundary{stroke:#d05262;stroke-width:2;stroke-dasharray:4 4}.week-grid{stroke:#dae5e4;stroke-width:1;stroke-dasharray:3 6}
+.cumulative-head .forecast-key-line,.cumulative-head .actual-key-line{display:inline-block;width:25px;height:0;border-top:3px solid #14a99d;vertical-align:middle;margin-right:6px}.cumulative-head .forecast-key-line{border-top-style:dashed}.cumulative-head .boundary-key-line{display:inline-block;width:0;height:15px;border-left:2px dashed #d05262;vertical-align:middle;margin-right:8px}
+.period-summary{margin-top:14px}.period-summary .table-wrap{max-height:420px}.period-summary th:not(:first-child),.period-summary td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}.period-summary .current-period-row{background:#edf9f7;font-weight:800}.period-summary .average-row{background:#fff8eb;font-weight:800}
+@media(max-width:1050px){.cumulative-controls{grid-template-columns:repeat(2,1fr)}.cumulative-chart{height:420px}}
+@media(max-width:650px){.cumulative-controls{grid-template-columns:1fr}.cumulative-chart{height:340px}.cumulative-head{display:block}.cumulative-head .legend{margin-top:12px}}

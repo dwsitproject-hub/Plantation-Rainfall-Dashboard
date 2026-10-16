@@ -1,0 +1,53 @@
+.seasonality { margin-top: 14px; }
+.dashboard-layout { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 18px; align-items: start; }
+.dashboard-content { min-width: 0; }
+.dryness-guide { position: sticky; top: 18px; padding: 18px; border-radius: 12px; background: #0b2530; color: #fff; }
+.dryness-guide h2 { margin: 4px 0 8px; font-size: 1.15rem; }
+.dryness-guide .guide-note { margin: 0 0 15px; color: #b9cccf; font-size: .78rem; }
+.dryness-guide > small { display: block; margin-top: 14px; color: #91a9ae; font-size: .69rem; line-height: 1.45; }
+.dryness-level { margin: 0 0 9px; padding: 10px 10px 10px 12px; border-left: 4px solid; border-radius: 5px; background: rgba(255,255,255,.07); }
+.dryness-level strong,.dryness-level span { display: block; }
+.dryness-level strong { margin-bottom: 3px; font-size: .79rem; }
+.dryness-level span { color: #d9e5e7; font-size: .7rem; line-height: 1.4; }
+.normal-level { border-color: #7aa2df; }.watch-level { border-color: #f2c14e; }.wet-level { border-color: #55d8a2; }
+.baseline-controls { display: flex; gap: 8px; align-items: end; margin-left: auto; }
+.baseline-controls label { width: auto; }
+.baseline-controls select { min-width: 92px; width: 92px; padding: 7px 25px 7px 9px; margin-top: 3px; }
+.season-head { gap: 18px; }
+.season-head .legend b { font-weight: 400; }
+.season-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+.season-grid h3 { margin: 0 0 8px; color: var(--muted); font-size: .84rem; }
+.season-chart { height: 235px; }
+.season-chart svg { display: block; width: 100%; height: 100%; }
+.current-year { background: var(--teal); }
+.today-marker { width: 3px !important; background: #cc5461; }
+.current-forecast { background: var(--blue); }
+.past-average { background: var(--amber); }
+.past-range { background: #dce8e9; }
+.season-line { fill: none; stroke-width: 3; }
+.season-dot { stroke: #fff; stroke-width: 2; }
+.chart-tooltip { position: fixed; z-index: 50; display: none; min-width: 180px; padding: 11px 13px; border: 1px solid #294550; border-radius: 9px; background: rgba(11,37,48,.96); color: #fff; box-shadow: 0 10px 28px rgba(11,37,48,.25); pointer-events: none; font-size: .78rem; line-height: 1.45; }
+.chart-tooltip.show { display: block; }
+.chart-tooltip strong,.chart-tooltip span,.chart-tooltip small { display: block; }
+.chart-tooltip strong { margin-bottom: 5px; color: #8ce6df; }
+.chart-tooltip span { color: #dce9eb; }
+.chart-tooltip b { float: right; margin-left: 15px; color: #fff; }
+.chart-tooltip small { margin-top: 5px; color: #9fb5ba; }
+.range-band { fill: #dce8e9; opacity: .8; }
+.average-line { fill: none; stroke: var(--amber); stroke-width: 2; stroke-dasharray: 6 5; }
+.current-line { fill: none; stroke: var(--teal); stroke-width: 3; }
+.average-dot { fill: #fff; stroke: var(--amber); stroke-width: 1.5; }
+.current-dot { fill: var(--teal); stroke: #fff; stroke-width: 1.5; }
+.cutoff-line { stroke: #cc5461; stroke-width: 1.8; stroke-dasharray: 5 4; }
+.cutoff-label { fill: #a43e4b; font-size: 10px; font-weight: 700; }
+.monthly-note { color: var(--muted); font-size: .75rem; }
+.current-forecast-line { fill: none; stroke: var(--blue); stroke-width: 3; stroke-dasharray: 6 4; }
+@media (max-width: 900px) {
+  .dashboard-layout { grid-template-columns: 1fr; }
+  .dryness-guide { position: static; display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; }
+  .dryness-guide > .eyebrow,.dryness-guide > h2,.dryness-guide > .guide-note,.dryness-guide > small { grid-column: 1/-1; }
+  .dryness-level { margin: 0; }
+  .season-grid { grid-template-columns: 1fr; }
+  .season-chart { height: 210px; }
+}
+@media (max-width: 620px) { .dryness-guide { grid-template-columns: 1fr; }.season-head { align-items: stretch; }.baseline-controls { margin-left: 0; }.baseline-controls label { flex: 1; }.baseline-controls select { width: 100%; }.season-head .legend { margin-top: 5px; } }
