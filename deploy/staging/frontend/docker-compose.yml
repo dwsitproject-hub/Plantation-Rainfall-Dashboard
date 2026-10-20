@@ -1,0 +1,23 @@
+# STAGING - frontend server 172.28.92.56 (nginx: pages + proxy to the backend).
+#
+# Run from this folder:   docker compose up -d --build
+# Users open:             http://172.28.92.56:3070/
+name: plantation-rainfall-staging-fe
+
+services:
+  frontend:
+    build:
+      context: ../../../frontend
+    image: plantation-rainfall-frontend:staging
+    container_name: plantation-rainfall-frontend-staging
+    environment:
+      # Backend server, private address and port (deploy/staging/backend).
+      BACKEND_URL: ${BACKEND_URL:-http://172.28.92.57:5070}
+    ports:
+      - "${FRONTEND_HOST_PORT:-3070}:8080"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

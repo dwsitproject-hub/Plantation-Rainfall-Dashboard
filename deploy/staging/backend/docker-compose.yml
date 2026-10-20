@@ -1,0 +1,30 @@
+# STAGING - backend server 172.28.92.57 (Python API, sign-in, DWS Hub SSO, data refresh).
+#
+# Run from this folder:   docker compose up -d --build
+# Settings and secrets:   .env.staging next to this file (copy .env.staging.example).
+#
+# The port is published on the private address only, so it is reachable from the
+# frontend server (172.28.92.56) and not from the public interface.
+name: plantation-rainfall-staging-be
+
+services:
+  backend:
+    build:
+      context: ../../..
+      dockerfile: backend/Dockerfile
+    image: plantation-rainfall-backend:staging
+    container_name: plantation-rainfall-backend-staging
+    env_file: .env.staging
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+      DASHBOARD_PORT: 8000
+      # Only the frontend server can reach this port (see the deployment guide, firewall step).
+      TRUST_PROXY_HEADERS: "true"
+    ports:
+      - "172.28.92.57:${BACKEND_HOST_PORT:-5070}:8000"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

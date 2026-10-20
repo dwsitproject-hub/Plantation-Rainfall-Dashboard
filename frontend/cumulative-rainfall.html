@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cumulative rainfall · Plantation Weather Monitor</title>
+  <meta name="description" content="Weekly cumulative rainfall with actual, forecast, and historical min-max ranges.">
+  <link rel="stylesheet" href="/css/dashboard.css?v=20261002-cumulative">
+  <link rel="stylesheet" href="/css/seasonality.css?v=20260917-overviews">
+  <link rel="stylesheet" href="/css/sidebar.css?v=20261008-accordion">
+  <link rel="stylesheet" href="/css/cumulative_rainfall.css?v=20261005-weekly">
+</head>
+<body>
+  <header><div><p class="eyebrow">Rainfall intelligence</p><h1>Cumulative rainfall</h1></div><div class="header-meta"><span class="live-dot"></span><span id="coverage">Loading rainfall data…</span></div></header>
+  <main class="cumulative-main">
+    <section class="cumulative-intro"><div><p class="eyebrow">Custom 12-month rainfall period</p><p>Choose the first month of the reporting year. Selecting July starts week 1 on 1 July and compares July–June periods across the selected historical years. The current line shows actual rainfall followed by the available forecast.</p></div></section>
+    <section class="panel cumulative-controls" aria-label="Cumulative rainfall filters">
+      <label>Region<select id="region"></select></label>
+      <label>Start month<select id="startMonth"></select></label>
+      <label>Historical from<select id="baselineStart"></select></label>
+      <label>Historical to<select id="baselineEnd"></select></label>
+    </section>
+    <section class="panel cumulative-panel">
+      <div class="panel-head cumulative-head"><div><p class="eyebrow">Weekly accumulated rainfall</p><h2 id="chartTitle">Current period vs historical benchmark (mm)</h2><p id="periodNote" class="period-note"></p></div><div class="legend"><span><i class="actual-key-line"></i>Actual</span><span><i class="forecast-key-line"></i>Forecast</span><span><i class="boundary-key-line"></i>Latest actual</span><span><i class="past-average"></i>Historical average</span><span><i class="past-range"></i>Historical min–max</span></div></div>
+      <div id="cumulativeChart" class="cumulative-chart" role="img" aria-label="Cumulative rainfall chart"></div>
+    </section>
+    <section class="panel period-summary"><div class="panel-head"><div><p class="eyebrow">Historical periods</p><h2>Final 12-month cumulative rainfall (mm)</h2></div></div><div class="table-wrap"><table><thead><tr><th>Period</th><th>Total rainfall</th><th>Vs historical average</th></tr></thead><tbody id="periodTable"></tbody></table></div></section>
+    <div id="error" class="error" hidden></div>
+  </main>
+  <footer>Rainfall: Open-Meteo • Weeks are consecutive seven-day blocks from the selected month’s first day • Incomplete forecast weeks are omitted</footer>
+  <script src="/js/sidebar.js?v=20261008-accordion3"></script><script src="/js/cumulative_rainfall.js?v=20261005-weekly"></script>
+</body>
+</html>
