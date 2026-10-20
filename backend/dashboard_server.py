@@ -24,6 +24,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
+import psycopg2
+import psycopg2.errors
+
 from backend import config
 from backend.all_regions.cumulative_rainfall_data import build_cumulative_rainfall
 from backend.all_regions.dashboard_payload import payload_bytes
@@ -219,6 +222,27 @@ class Handler(SimpleHTTPRequestHandler):
             return False, None
         return True, user
 
+    def send_health(self) -> None:
+        """Liveness plus database readiness, with a short reason when not ready.
+
+        Details (host names, driver messages) go to the log only, not to the caller.
+        """
+        try:
+            version = repository.plantation_signature()
+        except psycopg2.errors.UndefinedTable as exc:
+            self.log_error("Health: schema missing: %s", exc)
+            return self.send_json(503, {"status": "error", "problem":
+                                        "Database schema missing: run python -m backend.database.init_db"})
+        except psycopg2.OperationalError as exc:
+            self.log_error("Health: database unreachable: %s", str(exc).strip())
+            return self.send_json(503, {"status": "error", "problem":
+                                        "Database unreachable: check DATABASE_* settings, whitelist and SSL mode "
+                                        "(details in the backend log)"})
+        except Exception as exc:
+            self.log_error("Health check failed: %s", exc)
+            return self.send_json(503, {"status": "error", "problem": "Backend error (details in the backend log)"})
+        return self.send_json(200, {"status": "ok", "plantationVersion": version})
+
     def send_auth_check(self) -> None:
         """Page access decision for the frontend proxy (nginx auth_request).
 
@@ -290,7 +314,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/sso/callback":
             return self.handle_sso_callback(parse_qs(url.query))
         if path == "/api/health":
-            return self.send_document(lambda: {"status": "ok", "plantationVersion": repository.plantation_signature()})
+            return self.send_health()
         if path == "/api/me":
             return self.send_document(lambda: {**auth.public_user(user), "home": auth.home_path(user)})
         if path == "/api/admin/users":

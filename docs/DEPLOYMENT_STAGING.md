@@ -255,7 +255,7 @@ Fill in:
 | Setting | Value |
 | --- | --- |
 | `DATABASE_PASSWORD` | the `rainfall_app` password from 4.3 |
-| `DATABASE_SSLMODE` | `require` (or `prefer` if RDS SSL is off) |
+| `DATABASE_SSLMODE` | `require` if RDS SSL is on, otherwise `prefer` (SSL was **off** on the staging instance on 20 Oct 2026) |
 | `SYNCERA_DEV_CLIENT_SECRET`, `SYNCERA_PROD_CLIENT_SECRET` | from your local `.env` |
 | `SSO_CLIENT_ID` | as registered in 3.2 (`plantation-rainfall-staging`) |
 | `SSO_CLIENT_SECRET` | empty (the Hub uses public clients with PKCE) |
@@ -270,16 +270,27 @@ Check that nothing is left unset:
 grep -n 'REPLACE_ME' .env.staging || echo "all values set"
 ```
 
-### 5.3 Build and start
+### 5.3 Build, create the schema and start
+
+The health check reads the database, so create the schema before starting.
+(If you used Option B in 4.3, bootstrap already created it; the `init_db` line is
+harmless to run again.)
 
 ```bash
 cd /opt/plantation-rainfall/deploy/staging/backend
-docker compose up -d --build
+docker compose build
+docker compose run --rm backend python -m backend.database.init_db
+docker compose up -d
 docker compose ps                              # STATUS: Up (healthy) after ~20 s
 curl -s http://172.28.92.57:5070/api/health ; echo
 ```
 
-Expected: `{"status":"ok","plantationVersion":"0"}`.
+Expected: `Database schema is up to date; 18 weather regions seeded.`, then
+`{"status":"ok","plantationVersion":"0"}`.
+
+If health returns `{"status":"error","problem":...}`, the problem says which:
+*Database schema missing* (run the `init_db` line) or *Database unreachable*
+(password, whitelist or SSL mode; the exact error is in `docker compose logs backend`).
 
 Confirm the backend container can reach the Hub (token endpoint and signing keys):
 
@@ -287,15 +298,9 @@ Confirm the backend container can reach the Hub (token endpoint and signing keys
 docker compose exec backend python -c "import urllib.request as u; print(u.urlopen('http://test-dwshub.kpndomain.com/api/sso/jwks', timeout=10).status)"   # 200
 ```
 
-### 5.4 Create the schema
+### 5.4 (merged into 5.3)
 
-(Skip if you used Option B in 4.3 — bootstrap already did this.)
-
-```bash
-docker compose run --rm backend python -m backend.database.init_db
-```
-
-Expected: `Database schema is up to date; 18 weather regions seeded.`
+The schema is created in step 5.3.
 
 ### 5.5 Import the forecast archive
 
@@ -476,8 +481,9 @@ security-group rules and (optionally) the RDS database and account.
 | --- | --- | --- |
 | FE container exits: `host not found in upstream` | `BACKEND_URL` wrong or BE down when FE started | start BE first; check `BACKEND_URL`; `docker compose up -d` again |
 | Pages show **502 Bad Gateway** | FE cannot reach BE `172.28.92.57:5070` | security group rule (7); `curl http://172.28.92.57:5070/api/health` from FE server |
+| `/api/health` → `Database schema missing` | `init_db` not run yet | `docker compose run --rm backend python -m backend.database.init_db` |
 | BE unhealthy, log shows `password authentication failed` / `timeout` | DB password, whitelist, SSL mode | 4.2 whitelist; `.env.staging`; try `DATABASE_SSLMODE=prefer` if SSL is off |
-| `SSL is not enabled on the server` | `require` but RDS SSL disabled | enable SSL (4.1) or use `prefer` |
+| `server does not support SSL, but SSL was required` | `DATABASE_SSLMODE=require` but RDS SSL is off (the staging instance on 20 Oct 2026) | set `DATABASE_SSLMODE=prefer` in `.env.staging`, then `docker compose up -d --force-recreate`; or enable SSL on RDS (4.1) |
 | Sign-in page says **DWS Hub could not be reached** | BE container cannot reach `test-dwshub.kpndomain.com` | check `extra_hosts` / `HUB_HOST_IP` in `deploy/staging/backend/docker-compose.yml`; `docker compose exec backend python -c "import urllib.request as u;print(u.urlopen('http://test-dwshub.kpndomain.com/api/sso/jwks').status)"` |
 | Hub shows `invalid redirect_uri` / enforcement error | registration differs | 3.2: `sso_mode=oidc`, exact `oidc_redirect_uris`, same `SSO_CLIENT_ID` |
 | Browser cannot open the Hub page after clicking the button | `authorization_endpoint` not reachable from PCs | set `SSO_AUTHORIZATION_URL` (3.3), restart BE |
