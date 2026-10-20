@@ -49,6 +49,8 @@ ANY_SIGNED_IN = "signed_in"
 ALL_REGIONS_APIS = {"/api/cumulative-rainfall", "/api/forecast-changes", "/api/last-week-forecast-accuracy"}
 ADMIN_USER_PATH = re.compile(r"^/api/admin/users/(\d+)(/password)?$")
 MAX_BODY_BYTES = 16 * 1024
+# Marks one automatic restart of a Hub sign-in, so an unknown state cannot loop.
+SSO_RESTART_COOKIE = "rainfall_sso_restart"
 
 # Per-IP throttle on failed sign-ins, on top of the per-account lockout.
 FAILED_LOGIN_WINDOW_SECONDS = 600
@@ -187,6 +189,13 @@ class Handler(SimpleHTTPRequestHandler):
     # ---- session helpers --------------------------------------------------
     def session_token(self) -> str | None:
         return session_token_from(self.headers.get("Cookie", ""))
+
+    def cookie_value(self, name: str) -> str | None:
+        for part in self.headers.get("Cookie", "").split(";"):
+            key, _, value = part.strip().partition("=")
+            if key == name and value:
+                return value
+        return None
 
     def session_cookie(self, token: str, max_age: int) -> str:
         secure = "; Secure" if config.SESSION_COOKIE_SECURE else ""
@@ -386,8 +395,18 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json(404, {"error": "Unknown API endpoint"})
 
     # ---- single sign-on (DWS Hub) ------------------------------------------
-    def sso_failed(self, message: str) -> None:
-        self.redirect("/login.html?" + urlencode({"sso_error": message[:300]}))
+    def sso_failed(self, message: str, *, clear_restart: bool = False) -> None:
+        self.send_response(302)
+        self.send_header("Location", "/login.html?" + urlencode({"sso_error": message[:300]}))
+        if clear_restart:
+            self.send_header("Set-Cookie", self.restart_cookie(0))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def restart_cookie(self, max_age: int) -> str:
+        # Lax (not Strict): it must come back on the Hub's cross-site redirect to the callback.
+        secure = "; Secure" if config.SESSION_COOKIE_SECURE else ""
+        return f"{SSO_RESTART_COOKIE}=1; Path=/api/sso/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}"
 
     def handle_sso_login(self, query: dict) -> None:
         if not config.SSO_ENABLED:
@@ -410,6 +429,18 @@ class Handler(SimpleHTTPRequestHandler):
             token, _, next_path = sso.complete_login(
                 query.get("code", [""])[0], query.get("state", [""])[0],
                 ip_address=self.client_ip(), user_agent=self.headers.get("User-Agent"))
+        except sso.UnknownSsoState as exc:
+            # Opened from the DWS Hub tile: the Hub's code is discarded (it cannot be
+            # redeemed without our PKCE verifier) and a normal sign-in starts instead.
+            # The user is already signed in at the Hub, so it completes without a prompt.
+            if self.cookie_value(SSO_RESTART_COOKIE):
+                return self.sso_failed(str(exc), clear_restart=True)
+            auth_repository.audit("sso_launch_restarted", ip_address=self.client_ip())
+            self.send_response(302)
+            self.send_header("Location", "/api/sso/login")
+            self.send_header("Set-Cookie", self.restart_cookie(120))
+            self.send_header("Content-Length", "0")
+            return self.end_headers()
         except auth.AuthError as exc:
             return self.sso_failed(str(exc))
         except Exception as exc:
@@ -424,6 +455,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Set-Cookie", self.session_cookie(token, config.SESSION_HOURS * 3600))
+        self.send_header("Set-Cookie", self.restart_cookie(0))
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

@@ -41,6 +41,14 @@ class SsoError(service.AuthError):
     """A sign-in problem that is safe to show to the user."""
 
 
+class UnknownSsoState(SsoError):
+    """The callback carries a state this dashboard did not issue (or already used).
+
+    Happens when a sign-in is started from the DWS Hub tile instead of from this
+    dashboard: the Hub's code cannot be redeemed without our PKCE verifier.
+    """
+
+
 def _b64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
@@ -182,7 +190,7 @@ def complete_login(code: str, state: str, *, ip_address: str | None,
         raise SsoError("The DWS Hub sign-in response was incomplete. Please try again.")
     pending = repo.take_sso_request(service.token_hash(state))
     if pending is None:
-        raise SsoError("This sign-in link has expired or was already used. Please sign in again.")
+        raise UnknownSsoState("This sign-in link has expired or was already used. Please sign in again.")
     claims = verify_id_token(exchange_code(code, pending["code_verifier"]), nonce=pending["nonce"])
     user = _dashboard_user(claims, ip_address=ip_address)
     if not user["is_active"]:
