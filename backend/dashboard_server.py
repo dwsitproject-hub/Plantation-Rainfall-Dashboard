@@ -24,6 +24,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
+import psycopg2
+import psycopg2.errors
+
 from backend import config
 from backend.all_regions.cumulative_rainfall_data import build_cumulative_rainfall
 from backend.all_regions.dashboard_payload import payload_bytes
@@ -46,6 +49,8 @@ ANY_SIGNED_IN = "signed_in"
 ALL_REGIONS_APIS = {"/api/cumulative-rainfall", "/api/forecast-changes", "/api/last-week-forecast-accuracy"}
 ADMIN_USER_PATH = re.compile(r"^/api/admin/users/(\d+)(/password)?$")
 MAX_BODY_BYTES = 16 * 1024
+# Marks one automatic restart of a Hub sign-in, so an unknown state cannot loop.
+SSO_RESTART_COOKIE = "rainfall_sso_restart"
 
 # Per-IP throttle on failed sign-ins, on top of the per-account lockout.
 FAILED_LOGIN_WINDOW_SECONDS = 600
@@ -185,6 +190,13 @@ class Handler(SimpleHTTPRequestHandler):
     def session_token(self) -> str | None:
         return session_token_from(self.headers.get("Cookie", ""))
 
+    def cookie_value(self, name: str) -> str | None:
+        for part in self.headers.get("Cookie", "").split(";"):
+            key, _, value = part.strip().partition("=")
+            if key == name and value:
+                return value
+        return None
+
     def session_cookie(self, token: str, max_age: int) -> str:
         secure = "; Secure" if config.SESSION_COOKIE_SECURE else ""
         return f"{auth.SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{secure}"
@@ -218,6 +230,27 @@ class Handler(SimpleHTTPRequestHandler):
             self.redirect(redirect)
             return False, None
         return True, user
+
+    def send_health(self) -> None:
+        """Liveness plus database readiness, with a short reason when not ready.
+
+        Details (host names, driver messages) go to the log only, not to the caller.
+        """
+        try:
+            version = repository.plantation_signature()
+        except psycopg2.errors.UndefinedTable as exc:
+            self.log_error("Health: schema missing: %s", exc)
+            return self.send_json(503, {"status": "error", "problem":
+                                        "Database schema missing: run python -m backend.database.init_db"})
+        except psycopg2.OperationalError as exc:
+            self.log_error("Health: database unreachable: %s", str(exc).strip())
+            return self.send_json(503, {"status": "error", "problem":
+                                        "Database unreachable: check DATABASE_* settings, whitelist and SSL mode "
+                                        "(details in the backend log)"})
+        except Exception as exc:
+            self.log_error("Health check failed: %s", exc)
+            return self.send_json(503, {"status": "error", "problem": "Backend error (details in the backend log)"})
+        return self.send_json(200, {"status": "ok", "plantationVersion": version})
 
     def send_auth_check(self) -> None:
         """Page access decision for the frontend proxy (nginx auth_request).
@@ -290,7 +323,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/sso/callback":
             return self.handle_sso_callback(parse_qs(url.query))
         if path == "/api/health":
-            return self.send_document(lambda: {"status": "ok", "plantationVersion": repository.plantation_signature()})
+            return self.send_health()
         if path == "/api/me":
             return self.send_document(lambda: {**auth.public_user(user), "home": auth.home_path(user)})
         if path == "/api/admin/users":
@@ -362,8 +395,18 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json(404, {"error": "Unknown API endpoint"})
 
     # ---- single sign-on (DWS Hub) ------------------------------------------
-    def sso_failed(self, message: str) -> None:
-        self.redirect("/login.html?" + urlencode({"sso_error": message[:300]}))
+    def sso_failed(self, message: str, *, clear_restart: bool = False) -> None:
+        self.send_response(302)
+        self.send_header("Location", "/login.html?" + urlencode({"sso_error": message[:300]}))
+        if clear_restart:
+            self.send_header("Set-Cookie", self.restart_cookie(0))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def restart_cookie(self, max_age: int) -> str:
+        # Lax (not Strict): it must come back on the Hub's cross-site redirect to the callback.
+        secure = "; Secure" if config.SESSION_COOKIE_SECURE else ""
+        return f"{SSO_RESTART_COOKIE}=1; Path=/api/sso/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}"
 
     def handle_sso_login(self, query: dict) -> None:
         if not config.SSO_ENABLED:
@@ -386,6 +429,18 @@ class Handler(SimpleHTTPRequestHandler):
             token, _, next_path = sso.complete_login(
                 query.get("code", [""])[0], query.get("state", [""])[0],
                 ip_address=self.client_ip(), user_agent=self.headers.get("User-Agent"))
+        except sso.UnknownSsoState as exc:
+            # Opened from the DWS Hub tile: the Hub's code is discarded (it cannot be
+            # redeemed without our PKCE verifier) and a normal sign-in starts instead.
+            # The user is already signed in at the Hub, so it completes without a prompt.
+            if self.cookie_value(SSO_RESTART_COOKIE):
+                return self.sso_failed(str(exc), clear_restart=True)
+            auth_repository.audit("sso_launch_restarted", ip_address=self.client_ip())
+            self.send_response(302)
+            self.send_header("Location", "/api/sso/login")
+            self.send_header("Set-Cookie", self.restart_cookie(120))
+            self.send_header("Content-Length", "0")
+            return self.end_headers()
         except auth.AuthError as exc:
             return self.sso_failed(str(exc))
         except Exception as exc:
@@ -400,6 +455,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Set-Cookie", self.session_cookie(token, config.SESSION_HOURS * 3600))
+        self.send_header("Set-Cookie", self.restart_cookie(0))
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

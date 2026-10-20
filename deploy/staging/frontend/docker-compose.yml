@@ -1,7 +1,10 @@
 # STAGING - frontend server 172.28.92.56 (nginx: pages + proxy to the backend).
 #
-# Run from this folder:   docker compose up -d --build
+# Run from this folder:   cp .env.example .env   (once, then check the values)
+#                         docker compose up -d --build
 # Users open:             http://172.28.92.56:3070/
+#
+# Settings come from .env next to this file; startup stops with a message if one is missing.
 name: plantation-rainfall-staging-fe
 
 services:
@@ -12,9 +15,9 @@ services:
     container_name: plantation-rainfall-frontend-staging
     environment:
       # Backend server, private address and port (deploy/staging/backend).
-      BACKEND_URL: ${BACKEND_URL:-http://172.28.92.57:5070}
+      BACKEND_URL: ${BACKEND_URL:?Set BACKEND_URL in deploy/staging/frontend/.env (copy .env.example)}
     ports:
-      - "${FRONTEND_HOST_PORT:-3070}:8080"
+      - "${FRONTEND_HOST_PORT:?Set FRONTEND_HOST_PORT in deploy/staging/frontend/.env (copy .env.example)}:8080"
     restart: unless-stopped
     logging:
       driver: json-file

@@ -368,3 +368,21 @@ def test_frontend_build_files_are_not_served(server):
     client.login("siti.rahma@example.com")
     assert client.request("GET", "/Dockerfile")[0] == 404
     assert client.request("GET", "/nginx/default.conf.template")[0] == 404
+
+
+def test_health_reports_missing_schema_and_unreachable_database(server, monkeypatch):
+    client = Client(server)
+    status, _, body = client.request("GET", "/api/health")
+    assert status == 200 and json.loads(body)["status"] == "ok"
+    with transaction() as cursor:
+        cursor.execute("ALTER TABLE refresh_run RENAME TO refresh_run_hidden")
+    try:
+        status, _, body = client.request("GET", "/api/health")
+        assert status == 503 and "schema missing" in json.loads(body)["problem"]
+    finally:
+        with transaction() as cursor:
+            cursor.execute("ALTER TABLE refresh_run_hidden RENAME TO refresh_run")
+    monkeypatch.setattr(dashboard_server.config, "DATABASE_PORT", 1)
+    status, _, body = client.request("GET", "/api/health")
+    assert status == 503 and "unreachable" in json.loads(body)["problem"]
+    assert "127.0.0.1" not in body.decode()  # no connection details leak to callers

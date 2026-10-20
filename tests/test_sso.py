@@ -129,15 +129,39 @@ def test_sso_sign_in_links_registered_user_and_opens_session(server, hub):
     assert finish(Client(server), code, state)[0] == 200
 
 
-def test_state_is_single_use_and_unknown_state_is_refused(server, hub):
+def test_state_is_single_use_and_unknown_state_restarts_once(server, hub):
     make_user("siti.rahma@example.com", "regional")
     client = Client(server)
     code, state = hub.approve(start(client), sub="hub-uuid-1", email="siti.rahma@example.com")
     assert finish(client, code, state)[0] == 200
-    status, response, _ = finish(Client(server), code, state)  # replay
-    assert status == 302 and "sso_error=" in response.getheader("Location")
-    status, response, _ = finish(Client(server), "x", "forged-state")
+    # A replayed or foreign state is never redeemed: a fresh sign-in starts instead (once).
+    status, response, _ = finish(Client(server), code, state)
+    assert status == 302 and response.getheader("Location") == "/api/sso/login"
+    assert "rainfall_sso_restart=1" in response.getheader("Set-Cookie")
+    # A second unknown state while the restart marker is present shows the error (no loop).
+    status, response, _ = Client(server).request(
+        "GET", "/api/sso/callback?code=x&state=forged-state", headers={"Cookie": "rainfall_sso_restart=1"})
     assert status == 302 and "expired" in response.getheader("Location")
+
+
+def test_sign_in_started_from_the_hub_tile_completes(server, hub):
+    """The Hub sends the browser to our callback with its own state; we restart and finish."""
+    make_user("siti.rahma@example.com", "regional")
+    client = Client(server)
+    status, response, _ = finish(client, "hub-issued-code", "hub-issued-state")
+    assert status == 302 and response.getheader("Location") == "/api/sso/login"
+    assert auth_repository.recent_audit()[0]["action"] == "sso_launch_restarted"
+    client.cookie = "rainfall_sso_restart=1"
+    status, response, _ = client.request("GET", "/api/sso/login")
+    code, state = hub.approve(response.getheader("Location"), sub="hub-uuid-1", email="siti.rahma@example.com")
+    status, response, body = client.request("GET", f"/api/sso/callback?code={code}&state={state}")
+    assert status == 200 and b"url=/" in body
+    cookies = response.headers.get_all("Set-Cookie")
+    assert any(c.startswith("rainfall_session=") for c in cookies)
+    assert any(c.startswith("rainfall_sso_restart=1") and "Max-Age=0" in c for c in cookies)
+    session = next(c for c in cookies if c.startswith("rainfall_session=")).split(";")[0]
+    client.cookie = session
+    assert json.loads(client.request("GET", "/api/me")[2])["email"] == "siti.rahma@example.com"
 
 
 def test_unregistered_hub_user_is_refused_unless_auto_provisioning(server, hub, monkeypatch):
@@ -181,9 +205,9 @@ def test_token_signed_by_another_key_is_rejected(server, hub):
 
 def test_hub_rejecting_the_code_is_reported(server, hub):
     client = Client(server)
-    start(client)
-    status, response, _ = finish(client, "code-the-hub-never-issued", "unknown")
-    assert status == 302 and "sso_error=" in response.getheader("Location")
+    _, state = hub.approve(start(client), sub="hub-uuid-1", email="siti.rahma@example.com")
+    status, response, _ = finish(client, "code-the-hub-never-issued", state)  # our state, bad code
+    assert status == 302 and "invalid_grant" in response.getheader("Location")
 
 
 def test_disabled_and_hub_only_accounts(server, hub, monkeypatch):
