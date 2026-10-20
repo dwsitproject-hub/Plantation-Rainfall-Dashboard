@@ -36,6 +36,21 @@ def _region_ids(cursor) -> dict[tuple[str, str], int]:
     return {(country, region): region_id for country, region, region_id in cursor.fetchall()}
 
 
+def _bump_version(cursor, name: str) -> None:
+    """Mark data as changed (same transaction as the write) for the serving caches."""
+    cursor.execute("""
+        INSERT INTO data_version (name, version, changed_at) VALUES (%s, 1, now())
+        ON CONFLICT (name) DO UPDATE SET version = data_version.version + 1, changed_at = now()
+    """, (name,))
+
+
+def data_version(name: str) -> int:
+    with transaction() as cursor:
+        cursor.execute("SELECT version FROM data_version WHERE name = %s", (name,))
+        row = cursor.fetchone()
+    return row[0] if row else 0
+
+
 def _value(raw: Any) -> float | None:
     if raw is None or raw == "":
         return None
@@ -145,6 +160,7 @@ def upsert_weather_regions(regions: list[dict]) -> int:
             item["temperature_latitude"], item["temperature_longitude"],
             item["is_major_plantation"], item["display_order"],
         ) for item in regions])
+        _bump_version(cursor, "weather")
     return len(regions)
 
 
@@ -189,6 +205,7 @@ def replace_weather(metric: str, data_type: str, rows: Iterable[dict],
                 longitude, soil_depth_cm, method, source, retrieved_at)
             VALUES %s
         """, values, page_size=5000)
+        _bump_version(cursor, "weather")
     return len(values)
 
 
@@ -223,13 +240,20 @@ def read_weather(metric: str, data_type: str | None = None, *, country: str | No
 
 
 def weather_signature() -> str:
-    """Changes whenever any weather row is added, removed or re-pulled."""
+    """Changes whenever weather rows or forecast runs are written (see data_version)."""
+    return f"weather-v{data_version('weather')}"
+
+
+def check_schema() -> None:
+    """Raise if the database is unreachable or the schema is missing (health check)."""
     with transaction() as cursor:
-        cursor.execute("SELECT count(*), max(retrieved_at) FROM weather_daily")
-        count, latest = cursor.fetchone()
-        cursor.execute("SELECT count(*), max(run_date) FROM forecast_snapshot")
-        snapshot_count, snapshot_latest = cursor.fetchone()
-    return f"{count}:{latest}:{snapshot_count}:{snapshot_latest}"
+        cursor.execute("SELECT 1 FROM refresh_run LIMIT 1")
+        cursor.execute("SELECT 1 FROM data_version LIMIT 1")
+
+
+def plantation_signature() -> str:
+    """Changes whenever plantation data is replaced (see data_version)."""
+    return f"plantation-v{data_version('plantation')}"
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +303,7 @@ def save_snapshot(run_date: str, rows: list[dict], *, retention_runs: int,
             DELETE FROM forecast_snapshot WHERE run_date NOT IN (
                 SELECT DISTINCT run_date FROM forecast_snapshot ORDER BY run_date DESC LIMIT %s)
         """, (retention_runs,))
+        _bump_version(cursor, "weather")
     return len(values)
 
 
@@ -349,6 +374,7 @@ def load_plantation(run_id: int, *, locations: list[dict], forecast: dict, workb
             INSERT INTO plantation_forecast_daily (estate_id, valid_date, data_type, rainfall_mm, run_id)
             VALUES %s
         """, daily, page_size=5000)
+        _bump_version(cursor, "plantation")
 
 
 def plantations_document() -> dict:
@@ -441,15 +467,6 @@ def rainfall_document() -> dict:
         "companies": {key: sorted(value) for key, value in sorted(companies.items())},
         "records": records,
     }
-
-
-def plantation_signature() -> str:
-    with transaction() as cursor:
-        cursor.execute("""
-            SELECT coalesce(max(run_id), 0) FROM refresh_run
-            WHERE pipeline = 'plantation' AND status = 'succeeded'
-        """)
-        return str(cursor.fetchone()[0])
 
 
 # ---------------------------------------------------------------------------

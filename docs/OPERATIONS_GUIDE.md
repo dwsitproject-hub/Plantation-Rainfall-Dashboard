@@ -162,6 +162,21 @@ computer on the network. Keep the server process running while the dashboard is 
 
 The server publishes only the `frontend/` folder. Health check: `GET /api/health`.
 
+### Page speed: caching
+
+Pages load in well under 2 seconds because nothing is computed while a visitor waits:
+
+- Database connections are pooled (`DATABASE_POOL_SIZE`, default 10) instead of opened per query.
+- Every data response is kept in memory, compressed, and versioned by the `data_version`
+  table, which each refresh bumps in the same transaction as its writes.
+- A background warmer pre-builds every page's data at startup and checks for new data
+  every 60 seconds. After a refresh, visitors see the previous data for up to about a
+  minute while the new version is built in the background, then the new data.
+- The All Regions refresh also stores the `/api/data` payload in `dashboard_cache`, so a
+  restarted backend serves it immediately.
+
+Nothing needs to be cleared by hand; restarting the backend simply rebuilds the caches.
+
 ## Run the dashboard in Docker (separate frontend and backend)
 
 Two containers, so staging and production can put them on separate servers:

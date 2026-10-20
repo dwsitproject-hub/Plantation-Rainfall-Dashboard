@@ -189,7 +189,8 @@ def test_plantation_documents_are_empty_until_loaded(db):
 
 
 def test_plantation_round_trip(db):
-    run_id = load(LOCATIONS)
+    before = repository.plantation_signature()
+    load(LOCATIONS)
 
     assert repository.plantations_document() == {"source": "estates.xlsx", "locations": LOCATIONS}
     assert repository.forecast_document() == forecast_for(LOCATIONS)
@@ -197,7 +198,7 @@ def test_plantation_round_trip(db):
     assert rainfall["records"] == RAINFALL["records"]
     assert rainfall["sap_actual_cutoff"] == "2026-10-15"
     assert rainfall["companies"] == {"CR": ["3A"], "TH": ["3A"]}
-    assert repository.plantation_signature() == str(run_id)
+    assert repository.plantation_signature() != before  # serving caches rebuild
 
     with transaction() as cursor:
         cursor.execute("SELECT environment, company_code, posting_date_raw, extra_fields "
@@ -210,18 +211,20 @@ def test_plantation_round_trip(db):
 
 def test_reload_replaces_plantation_data_and_retires_removed_estates(db):
     load(LOCATIONS)
-    second = load(LOCATIONS[:1])
+    first = repository.plantation_signature()
+    load(LOCATIONS[:1])
 
     assert [item["id"] for item in repository.plantations_document()["locations"]] == ["TH3A"]
     assert [item["id"] for item in repository.forecast_document()["forecasts"]] == ["TH3A"]
     assert repository.rainfall_document()["records"] == RAINFALL["records"]  # replaced, not appended
     assert scalar("SELECT count(*) FROM sap_rainfall_raw") == 2
     assert scalar("SELECT is_active FROM estate WHERE estate_id = 'CR3A'") is False
-    assert repository.plantation_signature() == str(second)
+    assert repository.plantation_signature() != first
 
 
 def test_failed_plantation_load_keeps_the_previous_data(db):
     load(LOCATIONS)
+    signature = repository.plantation_signature()
     broken = forecast_for(LOCATIONS)
     broken["forecasts"][0]["id"] = "XX9Z"  # unknown estate: foreign key violation
     with pytest.raises(psycopg2.errors.ForeignKeyViolation):
@@ -232,6 +235,7 @@ def test_failed_plantation_load_keeps_the_previous_data(db):
     assert repository.plantations_document()["source"] == "estates.xlsx"
     assert repository.rainfall_document()["records"] == RAINFALL["records"]
     assert scalar("SELECT count(*) FROM sap_rainfall_raw") == 2
+    assert repository.plantation_signature() == signature  # rolled back with the data
 
 
 # --- Serving cache --------------------------------------------------------
