@@ -6,6 +6,7 @@
     login_succeeded: 'Signed in', login_failed: 'Failed sign-in', login_blocked: 'Sign-in blocked (locked)',
     logout: 'Signed out', user_created: 'User registered', user_updated: 'User updated',
     user_unlocked: 'Account unlocked', password_reset: 'Password reset by admin', password_changed: 'Password changed',
+    sso_login_succeeded: 'Signed in with DWS Hub', sso_linked: 'Linked to DWS Hub account', sso_launch_restarted: 'DWS Hub launch (sign-in restarted)',
   };
   let state = { users: [], roles: [], me: null, minLength: 12, ssoEnabled: false };
   let editing = null;

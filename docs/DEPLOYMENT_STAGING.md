@@ -8,7 +8,7 @@ with sign-in through **DWS Hub (OIDC, strict mode)**.
 | Frontend server | `172.28.92.56` — nginx container, host port **3070** |
 | Backend server | `172.28.92.57` — Python container, host port **5070** (private address only) |
 | Database | Apsara RDS for PostgreSQL `pgm-d9jx9o06qae8gf3h.pgsql.ap-southeast-5.rds.aliyuncs.com:5432` |
-| DWS Hub (staging) | API `http://172.28.92.57:4000` (server side), web `http://172.28.92.56:3100` |
+| DWS Hub (staging) | `http://test-dwshub.kpndomain.com` (issuer and all OIDC endpoints; resolves to `172.28.92.56`, port 80) |
 | Users open | **http://172.28.92.56:3070/** |
 | Install folder (both servers) | `/opt/plantation-rainfall` |
 | Code | GitHub `dwsitproject-hub/Plantation-Rainfall-Dashboard`, branch `restructure/production-layout` (or `main` once merged) |
@@ -20,8 +20,9 @@ with sign-in through **DWS Hub (OIDC, strict mode)**.
             BE 172.28.92.57:5070  (Python API, sessions, roles, data refresh)
               │                │                     │
               ▼                ▼                     ▼
-     Apsara RDS PostgreSQL   DWS Hub API :4000     Internet: Open-Meteo, SAP Syncera
-     (SSL, whitelisted)      (OIDC token + JWKS)
+     Apsara RDS PostgreSQL   DWS Hub               Internet: Open-Meteo, SAP Syncera
+     (SSL, whitelisted)      test-dwshub.kpndomain.com
+                             (OIDC token + JWKS)
 
  Sign-in: Browser ─► FE /api/sso/login ─► DWS Hub authorize ─► FE /api/sso/callback
           (backend exchanges the code with PKCE and verifies the ID token via JWKS)
@@ -87,12 +88,12 @@ ss -ltnp | grep -E ':3070\b'
 docker ps --format '{{.Names}}\t{{.Ports}}' | grep -E ':3070->' || echo "3070 free in Docker"
 
 docker --version && docker compose version     # Docker 20.10+ and Compose v2 required
-curl -s -o /dev/null -w '%{http_code}\n' http://172.28.92.57:4000/   # any code = BE server reachable
+curl -s -o /dev/null -w '%{http_code}\n' http://172.28.92.57:4000/   # any code = BE server reachable (404 is fine)
 ```
 
 > `tas_staging_nginx` was in a restart loop when the ports were chosen, so its
 > port is unknown. If the check above shows 3070 in use, pick another free port and
-> use it everywhere this guide says 3070 (compose variable `FRONTEND_HOST_PORT`, the
+> use it everywhere this guide says 3070 (`FRONTEND_HOST_PORT` in the frontend `.env`, the
 > Hub redirect URI and `SSO_REDIRECT_URI`).
 
 ### 2.2 Backend server `172.28.92.57`
@@ -106,15 +107,21 @@ docker --version && docker compose version
 curl -s -o /dev/null -w 'open-meteo %{http_code}\n' "https://api.open-meteo.com/v1/forecast?latitude=0&longitude=101&daily=precipitation_sum"
 curl -s -o /dev/null -w 'syncera-prod %{http_code}\n' https://syncera.gamasap.com/api/v1/auth
 curl -s -o /dev/null -w 'syncera-dev %{http_code}\n'  https://syncera-dev.gamasap.com/api/v1/auth
-# DWS Hub API on this host
-curl -s http://172.28.92.57:4000/api/sso/.well-known/openid-configuration ; echo
+# DWS Hub (issuer hostname; the backend container pins it to 172.28.92.56)
+curl -s http://test-dwshub.kpndomain.com/api/sso/.well-known/openid-configuration ; echo
+getent hosts test-dwshub.kpndomain.com || echo "not in server DNS (fine: pinned in the container)"
 # RDS reachable on 5432 (after the whitelist in step 4.2)
 timeout 5 bash -c '</dev/tcp/pgm-d9jx9o06qae8gf3h.pgsql.ap-southeast-5.rds.aliyuncs.com/5432' && echo "RDS port open"
 timedatectl | grep 'Time zone'
 ```
 
 Expected: Open-Meteo `200`; Syncera any HTTP code other than `000` (e.g. `404`/`405` for a GET on the auth URL);
-the Hub returns JSON.
+the Hub returns JSON whose `issuer` is `http://test-dwshub.kpndomain.com`.
+
+> Checked 20 Oct 2026: both ports free, Docker 29, Open-Meteo 200, Syncera 405,
+> RDS port open, Hub discovery OK. The backend server clock is **Asia/Shanghai (+08:00)**;
+> the backend container runs on Asia/Jakarta time, and the cron line in step 8 is
+> written in server time.
 
 ---
 
@@ -123,10 +130,20 @@ the Hub returns JSON.
 ### 3.1 Read the Hub discovery document (backend server)
 
 ```bash
-curl -s http://172.28.92.57:4000/api/sso/.well-known/openid-configuration | python3 -m json.tool
+curl -s http://test-dwshub.kpndomain.com/api/sso/.well-known/openid-configuration | python3 -m json.tool
 ```
 
-Note these values:
+Staging returns (20 Oct 2026):
+
+```
+issuer                  http://test-dwshub.kpndomain.com
+authorization_endpoint  http://test-dwshub.kpndomain.com/api/sso/authorize
+token_endpoint          http://test-dwshub.kpndomain.com/api/sso/token
+jwks_uri                http://test-dwshub.kpndomain.com/api/sso/jwks
+algorithms RS256, PKCE S256, token auth "none" (public client, no client secret)
+```
+
+What each value is used for:
 
 | Field | Used for |
 | --- | --- |
@@ -137,8 +154,8 @@ Note these values:
 Strict-mode sanity checks (from the Hub guide):
 
 ```bash
-curl -s -o /dev/null -w 'jwks %{http_code}\n'   http://172.28.92.57:4000/api/sso/jwks       # 200
-curl -s -o /dev/null -w 'bridge %{http_code}\n' http://172.28.92.57:4000/api/sso/bridge     # 410
+curl -s -o /dev/null -w 'jwks %{http_code}\n'   http://test-dwshub.kpndomain.com/api/sso/jwks       # 200
+curl -s -o /dev/null -w 'bridge %{http_code}\n' http://test-dwshub.kpndomain.com/api/sso/bridge     # 410
 ```
 
 ### 3.2 Create the registration in Hub Admin
@@ -151,17 +168,15 @@ curl -s -o /dev/null -w 'bridge %{http_code}\n' http://172.28.92.57:4000/api/sso
 | `oidc_redirect_uris` | `http://172.28.92.56:3070/api/sso/callback` (exact, no trailing slash) |
 | App / launch URL | `http://172.28.92.56:3070/api/sso/login` |
 
-If the Hub issues a client secret, put it in `SSO_CLIENT_SECRET` (step 5.2);
-otherwise leave it empty (public client with PKCE).
+The staging Hub advertises `token_endpoint_auth_methods_supported: ["none"]`, so this is a
+public client with PKCE: leave `SSO_CLIENT_SECRET` empty.
 
 ### 3.3 Check the authorize address from a user PC
 
-Open the `authorization_endpoint` from 3.1 in a browser on the office network/VPN.
-A Hub page or a Hub error about missing parameters means it is reachable. If it
-cannot be opened (for example it is `http://172.28.92.57:4000/...` and user PCs
-cannot reach the backend server), find the Hub address that users can open, for
-example `http://172.28.92.56:3100/...`, and set it as `SSO_AUTHORIZATION_URL` in
-step 5.2.
+Open `http://test-dwshub.kpndomain.com/api/sso/authorize` in a browser on the office network/VPN. A Hub page,
+a redirect or a Hub error about missing parameters means it is reachable (checked
+20 Oct 2026 from the IT PC: `302`). `SSO_AUTHORIZATION_URL` then stays empty. Only if
+users cannot open it, set `SSO_AUTHORIZATION_URL` to a Hub address they can open.
 
 ---
 
@@ -189,6 +204,21 @@ print `RDS port open`.
    your strong password.
 2. **Databases → Create Database**: name `plantation_rainfall`, owner/authorized
    account `rainfall_app`, character set **UTF8**.
+3. **Allow `rainfall_app` to create the schema.** The console usually makes the
+   privileged account the database owner and gives the standard account read/write
+   rights only, so `init_db` fails with `permission denied for database
+   plantation_rainfall`. Signed in with the **privileged account** (console →
+   **Log On to Database** / DMS, database `plantation_rainfall`), run once:
+
+   ```sql
+   GRANT CONNECT, CREATE, TEMPORARY ON DATABASE plantation_rainfall TO rainfall_app;
+   ```
+
+   Alternative from the backend server (asks for the privileged password):
+
+   ```bash
+   docker run --rm -it postgres:17-alpine psql "host=pgm-d9jx9o06qae8gf3h.pgsql.ap-southeast-5.rds.aliyuncs.com port=5432 dbname=plantation_rainfall user=<privileged account> sslmode=prefer" -c "GRANT CONNECT, CREATE, TEMPORARY ON DATABASE plantation_rainfall TO rainfall_app;"
+   ```
 
 **Option B — command line with the RDS privileged account:** after step 5, run:
 
@@ -240,12 +270,12 @@ Fill in:
 | Setting | Value |
 | --- | --- |
 | `DATABASE_PASSWORD` | the `rainfall_app` password from 4.3 |
-| `DATABASE_SSLMODE` | `require` (or `prefer` if RDS SSL is off) |
+| `DATABASE_SSLMODE` | `require` if RDS SSL is on, otherwise `prefer` (SSL was **off** on the staging instance on 20 Oct 2026) |
 | `SYNCERA_DEV_CLIENT_SECRET`, `SYNCERA_PROD_CLIENT_SECRET` | from your local `.env` |
 | `SSO_CLIENT_ID` | as registered in 3.2 (`plantation-rainfall-staging`) |
-| `SSO_CLIENT_SECRET` | only if the Hub issued one |
+| `SSO_CLIENT_SECRET` | empty (the Hub uses public clients with PKCE) |
 | `SSO_REDIRECT_URI` | `http://172.28.92.56:3070/api/sso/callback` (must match Hub exactly) |
-| `SSO_DISCOVERY_URL` | `http://172.28.92.57:4000/api/sso/.well-known/openid-configuration` |
+| `SSO_DISCOVERY_URL` | `http://test-dwshub.kpndomain.com/api/sso/.well-known/openid-configuration` (already in the template) |
 | `SSO_AUTHORIZATION_URL` | empty, unless step 3.3 required it |
 | `SSO_AUTO_PROVISION_ROLE` | empty (recommended: only registered users get in) or `regional` |
 
@@ -255,26 +285,37 @@ Check that nothing is left unset:
 grep -n 'REPLACE_ME' .env.staging || echo "all values set"
 ```
 
-### 5.3 Build and start
+### 5.3 Build, create the schema and start
+
+The health check reads the database, so create the schema before starting.
+(If you used Option B in 4.3, bootstrap already created it; the `init_db` line is
+harmless to run again.)
 
 ```bash
 cd /opt/plantation-rainfall/deploy/staging/backend
-docker compose up -d --build
+docker compose build
+docker compose run --rm backend python -m backend.database.init_db
+docker compose up -d
 docker compose ps                              # STATUS: Up (healthy) after ~20 s
 curl -s http://172.28.92.57:5070/api/health ; echo
 ```
 
-Expected: `{"status":"ok","plantationVersion":"0"}`.
+Expected: `Database schema is up to date; 18 weather regions seeded.`, then
+`{"status":"ok","plantationVersion":"0"}`.
 
-### 5.4 Create the schema
+If health returns `{"status":"error","problem":...}`, the problem says which:
+*Database schema missing* (run the `init_db` line) or *Database unreachable*
+(password, whitelist or SSL mode; the exact error is in `docker compose logs backend`).
 
-(Skip if you used Option B in 4.3 — bootstrap already did this.)
+Confirm the backend container can reach the Hub (token endpoint and signing keys):
 
 ```bash
-docker compose run --rm backend python -m backend.database.init_db
+docker compose exec backend python -c "import urllib.request as u; print(u.urlopen('http://test-dwshub.kpndomain.com/api/sso/jwks', timeout=10).status)"   # 200
 ```
 
-Expected: `Database schema is up to date; 18 weather regions seeded.`
+### 5.4 (merged into 5.3)
+
+The schema is created in step 5.3.
 
 ### 5.5 Import the forecast archive
 
@@ -332,7 +373,28 @@ git clone -b restructure/production-layout \
   git@github-plantrainfall:dwsitproject-hub/Plantation-Rainfall-Dashboard.git .
 ```
 
-### 6.2 Build and start
+### 6.2 Settings
+
+```bash
+cd /opt/plantation-rainfall/deploy/staging/frontend
+cp .env.example .env
+nano .env
+```
+
+| Setting | Value |
+| --- | --- |
+| `BACKEND_URL` | `http://172.28.92.57:5070` (backend private address and port from step 5) |
+| `FRONTEND_HOST_PORT` | `3070` (must match the port in the Hub redirect URI and `SSO_REDIRECT_URI`) |
+
+`docker compose` reads `.env` from this folder automatically. If a value is missing,
+startup stops with `Set BACKEND_URL in deploy/staging/frontend/.env` (or
+`FRONTEND_HOST_PORT`). Check what compose will use:
+
+```bash
+docker compose config | grep -E 'BACKEND_URL|published'
+```
+
+### 6.3 Build and start
 
 ```bash
 cd /opt/plantation-rainfall/deploy/staging/frontend
@@ -343,8 +405,8 @@ curl -s http://127.0.0.1:3070/api/health ; echo             # {"status":"ok",...
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' http://127.0.0.1:3070/   # 302 .../login.html
 ```
 
-The backend address defaults to `http://172.28.92.57:5070`. To change it, create
-`deploy/staging/frontend/.env` with `BACKEND_URL=...` (and/or `FRONTEND_HOST_PORT=...`).
+To change the backend address or port later, edit `.env` and run
+`docker compose up -d` again (compose recreates the container with the new values).
 
 ---
 
@@ -371,12 +433,17 @@ should time out.
 crontab -e
 ```
 
-Add (06:30 Jakarta time, Monday–Saturday; adjust to when SAP data is posted):
+The backend server clock is **Asia/Shanghai (+08:00)**, one hour ahead of Jakarta. To
+refresh at 06:30 WIB, Monday–Saturday (adjust to when SAP data is posted), schedule
+07:30 server time:
 
 ```
-CRON_TZ=Asia/Jakarta
-30 6 * * 1-6 /opt/plantation-rainfall/deploy/staging/backend/refresh.sh
+# Plantation Rainfall staging refresh: 07:30 server time (Asia/Shanghai) = 06:30 WIB
+30 7 * * 1-6 /opt/plantation-rainfall/deploy/staging/backend/refresh.sh
 ```
+
+The refresh itself runs on Jakarta time inside the container, so forecast run dates
+are WIB dates.
 
 Logs: `/opt/plantation-rainfall/deploy/staging/backend/logs/refresh-*.log` (kept 30 days).
 Every step is also recorded in the `rainfall.refresh_run` table.
@@ -448,16 +515,19 @@ security-group rules and (optionally) the RDS database and account.
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| FE container exits: `host not found in upstream` | `BACKEND_URL` wrong or BE down when FE started | start BE first; check `BACKEND_URL`; `docker compose up -d` again |
+| `docker compose` says `Set BACKEND_URL in deploy/staging/frontend/.env` | frontend `.env` missing or incomplete | `cp .env.example .env` in `deploy/staging/frontend` (6.2) |
+| FE container exits: `host not found in upstream` | `BACKEND_URL` wrong or BE down when FE started | start BE first; check `BACKEND_URL` in `deploy/staging/frontend/.env`; `docker compose up -d` again |
 | Pages show **502 Bad Gateway** | FE cannot reach BE `172.28.92.57:5070` | security group rule (7); `curl http://172.28.92.57:5070/api/health` from FE server |
+| `init_db`: `permission denied for database plantation_rainfall` | `rainfall_app` may not create objects in the database | run the GRANT in 4.3 step 3 with the privileged account, then `init_db` again |
+| `/api/health` → `Database schema missing` | `init_db` not run yet | `docker compose run --rm backend python -m backend.database.init_db` |
 | BE unhealthy, log shows `password authentication failed` / `timeout` | DB password, whitelist, SSL mode | 4.2 whitelist; `.env.staging`; try `DATABASE_SSLMODE=prefer` if SSL is off |
-| `SSL is not enabled on the server` | `require` but RDS SSL disabled | enable SSL (4.1) or use `prefer` |
-| Sign-in page says **DWS Hub could not be reached** | BE container cannot reach `SSO_DISCOVERY_URL` | `docker compose run --rm backend python -c "import urllib.request as u;print(u.urlopen('<SSO_DISCOVERY_URL>').read()[:200])"` |
+| `server does not support SSL, but SSL was required` | `DATABASE_SSLMODE=require` but RDS SSL is off (the staging instance on 20 Oct 2026) | set `DATABASE_SSLMODE=prefer` in `.env.staging`, then `docker compose up -d --force-recreate`; or enable SSL on RDS (4.1) |
+| Sign-in page says **DWS Hub could not be reached** | BE container cannot reach `test-dwshub.kpndomain.com` | check `extra_hosts` / `HUB_HOST_IP` in `deploy/staging/backend/docker-compose.yml`; `docker compose exec backend python -c "import urllib.request as u;print(u.urlopen('http://test-dwshub.kpndomain.com/api/sso/jwks').status)"` |
 | Hub shows `invalid redirect_uri` / enforcement error | registration differs | 3.2: `sso_mode=oidc`, exact `oidc_redirect_uris`, same `SSO_CLIENT_ID` |
 | Browser cannot open the Hub page after clicking the button | `authorization_endpoint` not reachable from PCs | set `SSO_AUTHORIZATION_URL` (3.3), restart BE |
 | Back on sign-in page: **token … rejected** | wrong `SSO_CLIENT_ID` (aud), issuer mismatch, server clock | check client id; `timedatectl` (NTP on); Hub `issuer` |
 | **has no access to this dashboard yet** | Hub user not registered | register their Hub email (9), or set `SSO_AUTO_PROVISION_ROLE` |
-| **sign-in link has expired or was already used** | back button / took > 10 minutes at the Hub | click **Sign in with DWS Hub** again |
+| **sign-in link has expired or was already used** | a second unknown sign-in within 2 minutes (back button, > 10 minutes at the Hub). A first one, e.g. opening the app from the DWS Hub tile, restarts the sign-in automatically (audit: `sso_launch_restarted`) | click **Sign in with DWS Hub** again; if every Hub tile launch ends here, collect `docker logs plantation-rainfall-frontend-staging 2>&1 \| grep /api/sso` on the FE server |
 | Refresh fails: `PROD SAP data is stale` | no PROD reading this month yet (early month) | expected business rule; retry later |
 | Refresh fails: HTTP 429 after retries | Syncera rate limit | rerun later, or set `SAP_WORKERS=2` in `.env.staging` |
 | Audit shows `172.x` Docker addresses | `TRUST_PROXY_HEADERS` not applied | compose sets it; check `docker compose config` |
