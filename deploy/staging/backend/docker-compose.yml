@@ -22,6 +22,11 @@ services:
       TRUST_PROXY_HEADERS: "true"
     ports:
       - "172.28.92.57:${BACKEND_HOST_PORT:-5070}:8000"
+    # The Hub announces its endpoints as test-dwshub.kpndomain.com (served by the
+    # frontend server on port 80). Pin the name so the backend reaches the token
+    # endpoint and signing keys even if the server's DNS does not know the company domain.
+    extra_hosts:
+      - "test-dwshub.kpndomain.com:${HUB_HOST_IP:-172.28.92.56}"
     restart: unless-stopped
     logging:
       driver: json-file
