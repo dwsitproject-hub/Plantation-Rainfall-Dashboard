@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>User management · Plantation Weather</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b2530'/%3E%3Cpath d='M16 5C12 11 9 14.5 9 18.5a7 7 0 0 0 14 0C23 14.5 20 11 16 5z' fill='%2371d7d0'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+  <header>
+    <div><p class="eyebrow">Administration</p><h1>User management</h1></div>
+    <div class="header-meta">Register users and control what each role can see</div>
+  </header>
+  <main>
+    <div id="error" class="error" role="alert" hidden></div>
+    <section class="kpis admin-kpis" aria-label="User summary">
+      <article><span>Users</span><strong id="kpiTotal">—</strong><small>all accounts</small></article>
+      <article><span>Active</span><strong id="kpiActive">—</strong><small>can sign in</small></article>
+      <article><span>Administrators</span><strong id="kpiAdmins">—</strong><small>active, can manage users</small></article>
+      <article><span>Locked</span><strong id="kpiLocked">—</strong><small>after failed sign-ins</small></article>
+    </section>
+
+    <div class="admin-grid">
+      <section class="panel">
+        <div class="panel-head">
+          <div><h2>Users</h2><span class="panel-sub">Edit, reset passwords, disable or unlock accounts</span></div>
+          <input id="search" class="search" type="search" placeholder="Search name or email" aria-label="Search users">
+        </div>
+        <div class="table-wrap admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last sign-in</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody id="userRows"><tr><td colspan="5" class="muted">Loading users…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><div><h2>Register new user</h2><span class="panel-sub">The user signs in with this email and password</span></div></div>
+        <form id="createForm" class="admin-form" novalidate>
+          <label>Email<input name="email" type="email" autocomplete="off" autocapitalize="none" spellcheck="false" required placeholder="name@company.com"></label>
+          <label>Full name<input name="fullName" autocomplete="off" required></label>
+          <label>Role<select name="role" id="createRole" required></select></label>
+          <p id="roleHelp" class="role-help"></p>
+          <label>Initial password
+            <span class="password-row"><input name="password" id="createPassword" type="text" autocomplete="new-password" required>
+            <button type="button" class="secondary" id="generate">Generate</button></span>
+          </label>
+          <p class="hint" id="passwordRule"></p>
+          <div id="createMessage" class="form-message" role="status" hidden></div>
+          <button type="submit" class="primary">Register user</button>
+        </form>
+      </section>
+    </div>
+
+    <section class="panel admin-section">
+      <div class="panel-head"><div><h2>Roles and access</h2><span class="panel-sub">What each role can open</span></div></div>
+      <div class="table-wrap"><table class="admin-table role-table">
+        <thead><tr><th>Role</th><th>Description</th><th>All Regions</th><th>In-house Plantation</th><th>User management</th></tr></thead>
+        <tbody id="roleRows"></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel admin-section">
+      <div class="panel-head"><div><h2>Recent activity</h2><span class="panel-sub">Sign-ins and account changes (latest 50)</span></div></div>
+      <div class="table-wrap admin-table-wrap"><table class="admin-table">
+        <thead><tr><th>When</th><th>Event</th><th>By</th><th>Account</th><th>From</th></tr></thead>
+        <tbody id="auditRows"></tbody>
+      </table></div>
+    </section>
+  </main>
+
+  <dialog id="editDialog" aria-labelledby="editTitle">
+    <form id="editForm" class="admin-form" method="dialog" novalidate>
+      <h2 id="editTitle">Edit user</h2>
+      <p class="dialog-sub" id="editSub"></p>
+      <label>Full name<input name="fullName" required></label>
+      <label>Email (used to sign in)<input name="email" type="email" required></label>
+      <label>Role<select name="role" id="editRole"></select></label>
+      <label class="check"><input type="checkbox" name="isActive"> Account active (can sign in)</label>
+      <div id="editMessage" class="form-message" role="alert" hidden></div>
+      <div class="dialog-actions"><button type="button" class="secondary" data-close>Cancel</button><button type="submit" class="primary">Save changes</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="resetDialog" aria-labelledby="resetTitle">
+    <form id="resetForm" class="admin-form" method="dialog" novalidate>
+      <h2 id="resetTitle">Reset password</h2>
+      <p class="dialog-sub" id="resetSub"></p>
+      <label>New password
+        <span class="password-row"><input name="password" id="resetPassword" type="text" autocomplete="new-password" required>
+        <button type="button" class="secondary" id="resetGenerate">Generate</button></span>
+      </label>
+      <p class="hint">The user is signed out everywhere and any lockout is cleared.</p>
+      <div id="resetMessage" class="form-message" role="alert" hidden></div>
+      <div class="dialog-actions"><button type="button" class="secondary" data-close>Cancel</button><button type="submit" class="primary">Reset password</button></div>
+    </form>
+  </dialog>
+
+  <footer>Accounts, roles and sign-in activity are stored in PostgreSQL</footer>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/admin_users.js"></script>
+</body>
+</html>
