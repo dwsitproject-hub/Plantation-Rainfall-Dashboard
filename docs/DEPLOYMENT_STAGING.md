@@ -93,7 +93,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://172.28.92.57:4000/   # any code 
 
 > `tas_staging_nginx` was in a restart loop when the ports were chosen, so its
 > port is unknown. If the check above shows 3070 in use, pick another free port and
-> use it everywhere this guide says 3070 (compose variable `FRONTEND_HOST_PORT`, the
+> use it everywhere this guide says 3070 (`FRONTEND_HOST_PORT` in the frontend `.env`, the
 > Hub redirect URI and `SSO_REDIRECT_URI`).
 
 ### 2.2 Backend server `172.28.92.57`
@@ -204,6 +204,21 @@ print `RDS port open`.
    your strong password.
 2. **Databases → Create Database**: name `plantation_rainfall`, owner/authorized
    account `rainfall_app`, character set **UTF8**.
+3. **Allow `rainfall_app` to create the schema.** The console usually makes the
+   privileged account the database owner and gives the standard account read/write
+   rights only, so `init_db` fails with `permission denied for database
+   plantation_rainfall`. Signed in with the **privileged account** (console →
+   **Log On to Database** / DMS, database `plantation_rainfall`), run once:
+
+   ```sql
+   GRANT CONNECT, CREATE, TEMPORARY ON DATABASE plantation_rainfall TO rainfall_app;
+   ```
+
+   Alternative from the backend server (asks for the privileged password):
+
+   ```bash
+   docker run --rm -it postgres:17-alpine psql "host=pgm-d9jx9o06qae8gf3h.pgsql.ap-southeast-5.rds.aliyuncs.com port=5432 dbname=plantation_rainfall user=<privileged account> sslmode=prefer" -c "GRANT CONNECT, CREATE, TEMPORARY ON DATABASE plantation_rainfall TO rainfall_app;"
+   ```
 
 **Option B — command line with the RDS privileged account:** after step 5, run:
 
@@ -358,7 +373,28 @@ git clone -b restructure/production-layout \
   git@github-plantrainfall:dwsitproject-hub/Plantation-Rainfall-Dashboard.git .
 ```
 
-### 6.2 Build and start
+### 6.2 Settings
+
+```bash
+cd /opt/plantation-rainfall/deploy/staging/frontend
+cp .env.example .env
+nano .env
+```
+
+| Setting | Value |
+| --- | --- |
+| `BACKEND_URL` | `http://172.28.92.57:5070` (backend private address and port from step 5) |
+| `FRONTEND_HOST_PORT` | `3070` (must match the port in the Hub redirect URI and `SSO_REDIRECT_URI`) |
+
+`docker compose` reads `.env` from this folder automatically. If a value is missing,
+startup stops with `Set BACKEND_URL in deploy/staging/frontend/.env` (or
+`FRONTEND_HOST_PORT`). Check what compose will use:
+
+```bash
+docker compose config | grep -E 'BACKEND_URL|published'
+```
+
+### 6.3 Build and start
 
 ```bash
 cd /opt/plantation-rainfall/deploy/staging/frontend
@@ -369,8 +405,8 @@ curl -s http://127.0.0.1:3070/api/health ; echo             # {"status":"ok",...
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' http://127.0.0.1:3070/   # 302 .../login.html
 ```
 
-The backend address defaults to `http://172.28.92.57:5070`. To change it, create
-`deploy/staging/frontend/.env` with `BACKEND_URL=...` (and/or `FRONTEND_HOST_PORT=...`).
+To change the backend address or port later, edit `.env` and run
+`docker compose up -d` again (compose recreates the container with the new values).
 
 ---
 
@@ -479,8 +515,10 @@ security-group rules and (optionally) the RDS database and account.
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| FE container exits: `host not found in upstream` | `BACKEND_URL` wrong or BE down when FE started | start BE first; check `BACKEND_URL`; `docker compose up -d` again |
+| `docker compose` says `Set BACKEND_URL in deploy/staging/frontend/.env` | frontend `.env` missing or incomplete | `cp .env.example .env` in `deploy/staging/frontend` (6.2) |
+| FE container exits: `host not found in upstream` | `BACKEND_URL` wrong or BE down when FE started | start BE first; check `BACKEND_URL` in `deploy/staging/frontend/.env`; `docker compose up -d` again |
 | Pages show **502 Bad Gateway** | FE cannot reach BE `172.28.92.57:5070` | security group rule (7); `curl http://172.28.92.57:5070/api/health` from FE server |
+| `init_db`: `permission denied for database plantation_rainfall` | `rainfall_app` may not create objects in the database | run the GRANT in 4.3 step 3 with the privileged account, then `init_db` again |
 | `/api/health` → `Database schema missing` | `init_db` not run yet | `docker compose run --rm backend python -m backend.database.init_db` |
 | BE unhealthy, log shows `password authentication failed` / `timeout` | DB password, whitelist, SSL mode | 4.2 whitelist; `.env.staging`; try `DATABASE_SSLMODE=prefer` if SSL is off |
 | `server does not support SSL, but SSL was required` | `DATABASE_SSLMODE=require` but RDS SSL is off (the staging instance on 20 Oct 2026) | set `DATABASE_SSLMODE=prefer` in `.env.staging`, then `docker compose up -d --force-recreate`; or enable SSL on RDS (4.1) |
