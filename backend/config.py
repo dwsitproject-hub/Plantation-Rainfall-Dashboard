@@ -51,6 +51,8 @@ DATABASE_PORT = _int("DATABASE_PORT", 5432)
 DATABASE_NAME = _get("DATABASE_NAME", "plantation_rainfall")
 # disable | prefer | require | verify-full (use require or stricter for Apsara RDS).
 DATABASE_SSLMODE = _get("DATABASE_SSLMODE", "prefer")
+# Open connections kept per backend process (reused across requests).
+DATABASE_POOL_SIZE = _int("DATABASE_POOL_SIZE", 10)
 
 
 def database_user() -> str:

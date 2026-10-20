@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+import threading
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -18,28 +20,80 @@ def cycle_label(year: int, month: int) -> str:
     return f"{start:%b %Y} – {(end - timedelta(days=1)):%b %Y}"
 
 
+# Parsed daily rainfall of every country, held in memory: reading the full history
+# takes seconds, building a chart from it milliseconds. After the weather data
+# changes the old snapshot keeps serving until the new one is loaded in the background.
+DATA_TYPES = ("historical_actual", "forecast")
+CountryDays = dict[str, dict[date, list[float]]]  # logical region -> day -> values
+_snapshot: tuple[str, dict[tuple[str, str], CountryDays]] | None = None
+_snapshot_lock = threading.Lock()
+
+
+def _read_country(country: str, data_type: str) -> CountryDays:
+    peninsular = region_members("Malaysia", "Pennisular")
+    days: CountryDays = defaultdict(lambda: defaultdict(list))
+    for row in repository.read_weather("rainfall_mm", data_type, country=country):
+        logical_region = ("Pennisular" if country == "Malaysia" and row["region"] in peninsular
+                          else row["region"])
+        try:
+            days[logical_region][date.fromisoformat(row["date"])].append(float(row["rainfall_mm"]))
+        except (ValueError, TypeError):
+            continue
+    return days
+
+
+def load_snapshot(signature: str | None = None) -> tuple[str, dict]:
+    """Load (now) every country's rainfall unless the snapshot is already current."""
+    global _snapshot
+    with _snapshot_lock:
+        signature = signature or repository.weather_signature()
+        if _snapshot and _snapshot[0] == signature:
+            return _snapshot
+        countries = sorted({country for country, _, _, _ in REGIONS})
+        _snapshot = (signature, {(country, data_type): _read_country(country, data_type)
+                                 for country in countries for data_type in DATA_TYPES})
+        return _snapshot
+
+
+def _reload_in_background(signature: str) -> None:
+    try:
+        load_snapshot(signature)
+    except Exception as exc:
+        print(f"Reloading cumulative rainfall data failed: {exc}", file=sys.stderr, flush=True)
+
+
+def current_snapshot() -> tuple[str, dict]:
+    """The loaded snapshot; starts a background reload when the weather data changed."""
+    snapshot = _snapshot
+    if snapshot is None:
+        return load_snapshot()
+    signature = repository.weather_signature()
+    if snapshot[0] != signature and not _snapshot_lock.locked():
+        threading.Thread(target=_reload_in_background, args=(signature,),
+                         name="reload cumulative rainfall", daemon=True).start()
+    return snapshot
+
+
+def data_signature() -> str:
+    """Version of the rainfall that cumulative responses are built from."""
+    return current_snapshot()[0]
+
+
+def country_days(country: str, data_type: str) -> CountryDays:
+    return current_snapshot()[1].get((country, data_type), {})
+
+
 def daily_values(country: str, region: str, *, historical: bool,
                  date_from: date | None = None) -> dict[date, float]:
     """Require every basket member for an overall daily value."""
     members = MAJOR_PLANTATION_REGIONS[country] if region.startswith("Overall ") else {region}
-    by_day = defaultdict(lambda: defaultdict(list))
-    data_type = "historical_actual" if historical else "forecast"
-    rows = repository.read_weather("rainfall_mm", data_type, country=country,
-                                   date_from=date_from.isoformat() if date_from else None)
-    for row in rows:
-        logical_region = ("Pennisular" if country == "Malaysia" and
-                          row["region"] in region_members("Malaysia", "Pennisular")
-                          else row["region"])
-        if logical_region not in members:
-            continue
-        try:
-            by_day[date.fromisoformat(row["date"])][logical_region].append(float(row["rainfall_mm"]))
-        except (ValueError, TypeError):
-            continue
+    days = country_days(country, "historical_actual" if historical else "forecast")
+    member_days = [days.get(member, {}) for member in members]
+    shared = set.intersection(*(set(values) for values in member_days)) if member_days else set()
     return {
-        day: sum(sum(group) / len(group) for group in values.values()) / len(members)
-        for day, values in by_day.items()
-        if len(values) == len(members)
+        day: sum(sum(values[day]) / len(values[day]) for values in member_days) / len(members)
+        for day in shared
+        if date_from is None or day >= date_from
     }
 
 

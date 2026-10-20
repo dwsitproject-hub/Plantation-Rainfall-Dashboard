@@ -28,12 +28,14 @@ import psycopg2
 import psycopg2.errors
 
 from backend import config
+from backend.all_regions import cumulative_rainfall_data
 from backend.all_regions.cumulative_rainfall_data import build_cumulative_rainfall
-from backend.all_regions.dashboard_payload import payload_bytes
+from backend.all_regions.dashboard_payload import load_payload, payload_bytes
 from backend.all_regions.forecast_changes import build_forecast_changes, build_last_week_accuracy
 from backend.auth import service as auth
 from backend.auth import sso
 from backend.database import auth_repository, repository
+from backend.serving_cache import ResponseCache
 
 
 # In-house dashboard data files, kept at their original URLs so app.js is unchanged.
@@ -42,6 +44,10 @@ INHOUSE_DOCUMENTS = {
     "/inhouse/data/plantations.json": repository.plantations_document,
     "/inhouse/data/forecast_14day.json": repository.forecast_document,
 }
+# Built data documents, rebuilt only when their data version (or the date) changes.
+RESPONSES = ResponseCache()
+# How often the background warmer checks for refreshed data and pre-builds documents.
+CACHE_WARM_SECONDS = 60
 
 PUBLIC_PATHS = {"/login.html", "/css/login.css", "/js/login.js", "/api/login", "/api/health", "/api/auth/check",
                 "/api/sso/config", "/api/sso/login", "/api/sso/callback"}
@@ -167,9 +173,13 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def send_document(self, build) -> None:
+    def send_document(self, build, *, prebuilt: bool = False) -> None:
         try:
-            self.send_json(200, json.dumps(build(), separators=(",", ":"), default=str).encode())
+            if prebuilt:
+                body, compressed = build()
+                self.send_json(200, body, gzip_body=compressed)
+            else:
+                self.send_json(200, json.dumps(build(), separators=(",", ":"), default=str).encode())
         except auth.AccessDenied as exc:
             self.send_json(403, {"error": str(exc)})
         except auth.AuthError as exc:
@@ -181,6 +191,10 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self.log_error("Request failed: %s", exc)
             self.send_json(500, {"error": "The request could not be completed."})
+
+    def send_cached(self, key: str, signature_of, build) -> None:
+        """Serve a data document from RESPONSES (see warm_caches)."""
+        self.send_document(lambda: RESPONSES.get(key, signature_of, build), prebuilt=True)
 
     def list_directory(self, path):  # never list folder contents
         self.send_error(404, "File not found")
@@ -237,6 +251,7 @@ class Handler(SimpleHTTPRequestHandler):
         Details (host names, driver messages) go to the log only, not to the caller.
         """
         try:
+            repository.check_schema()
             version = repository.plantation_signature()
         except psycopg2.errors.UndefinedTable as exc:
             self.log_error("Health: schema missing: %s", exc)
@@ -311,8 +326,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.redirect(auth.home_path(user))
         if path in ("/admin", "/admin/"):
             return self.redirect("/admin/users.html")
-        if path in INHOUSE_DOCUMENTS:
-            return self.send_document(INHOUSE_DOCUMENTS[path])
+        if path in INHOUSE_DOCUMENTS or path in ("/api/forecast-changes", "/api/last-week-forecast-accuracy"):
+            return self.send_cached(*shared_documents()[path])
         if path == "/api/auth/check":
             return self.send_auth_check()
         if path == "/api/sso/config":
@@ -337,16 +352,15 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_document(lambda: {"events": auth_repository.recent_audit(50)})
         if path == "/api/cumulative-rainfall":
             query = parse_qs(url.query)
-            return self.send_document(lambda: build_cumulative_rainfall(
-                query.get("region", [""])[0],
-                int(query.get("startMonth", ["7"])[0]),
-                int(query.get("from", ["2015"])[0]),
-                int(query.get("to", [str(date.today().year - 1)])[0]),
-            ))
-        if path == "/api/last-week-forecast-accuracy":
-            return self.send_document(build_last_week_accuracy)
-        if path == "/api/forecast-changes":
-            return self.send_document(build_forecast_changes)
+            try:
+                params = (query.get("region", [""])[0], int(query.get("startMonth", ["7"])[0]),
+                          int(query.get("from", ["2015"])[0]),
+                          int(query.get("to", [str(date.today().year - 1)])[0]))
+            except ValueError:
+                return self.send_json(400, {"error": "Invalid parameters."})
+            return self.send_cached(f"cumulative:{json.dumps(params)}:{date.today().year}",
+                                    cumulative_rainfall_data.data_signature,
+                                    lambda: build_cumulative_rainfall(*params))
         if path == "/api/data":
             try:
                 body, compressed = payload_bytes()
@@ -486,8 +500,50 @@ class Handler(SimpleHTTPRequestHandler):
                        cookie=self.session_cookie(token, config.SESSION_HOURS * 3600))
 
 
+def shared_documents() -> dict[str, tuple]:
+    """Documents that are the same for every visitor: path -> (cache key, signature, build)."""
+    documents = {path: (path, repository.plantation_signature, build) for path, build in INHOUSE_DOCUMENTS.items()}
+    documents["/api/forecast-changes"] = ("forecast-changes", repository.weather_signature, build_forecast_changes)
+    # The compared week depends on today's date.
+    documents["/api/last-week-forecast-accuracy"] = (
+        f"last-week:{date.today().isoformat()}", repository.weather_signature, build_last_week_accuracy)
+    return documents
+
+
+def warm_caches() -> None:
+    """Pre-build every shared document, and rebuild cached ones (e.g. cumulative) whose data changed.
+
+    Runs at startup and every CACHE_WARM_SECONDS, so after a data refresh visitors get
+    the new data without waiting for a build (they get the previous data until then).
+    """
+    def report(key: str, exc: Exception) -> None:
+        print(f"Cache warm-up of {key} failed: {exc}", flush=True)
+
+    try:
+        load_payload(repository.weather_signature())
+    except Exception as exc:
+        report("/api/data", exc)
+    try:
+        cumulative_rainfall_data.load_snapshot()
+    except Exception as exc:
+        report("cumulative rainfall data", exc)
+    for path, (key, signature_of, build) in shared_documents().items():
+        try:
+            RESPONSES.build(key, signature_of, build)
+        except Exception as exc:
+            report(path, exc)
+    RESPONSES.refresh_stale()
+
+
+def warm_caches_forever() -> None:
+    while True:
+        warm_caches()
+        time.sleep(CACHE_WARM_SECONDS)
+
+
 def main() -> None:
     socket.setdefaulttimeout(30)
+    threading.Thread(target=warm_caches_forever, name="cache-warmer", daemon=True).start()
     server = ThreadingHTTPServer((config.DASHBOARD_HOST, config.DASHBOARD_PORT), Handler)
     print(f"Dashboard ready: http://localhost:{config.DASHBOARD_PORT}")
     print(f"Network address: {config.DASHBOARD_PUBLIC_URL}")

@@ -301,7 +301,7 @@ curl -s http://172.28.92.57:5070/api/health ; echo
 ```
 
 Expected: `Database schema is up to date; 18 weather regions seeded.`, then
-`{"status":"ok","plantationVersion":"0"}`.
+`{"status":"ok","plantationVersion":"plantation-v0"}`.
 
 If health returns `{"status":"error","problem":...}`, the problem says which:
 *Database schema missing* (run the `init_db` line) or *Database unreachable*
@@ -489,8 +489,9 @@ Hub users who are not registered see "has no access to this dashboard yet"
 ```bash
 # backend server
 cd /opt/plantation-rainfall && git pull
-cd deploy/staging/backend && docker compose up -d --build
-docker compose run --rm backend python -m backend.database.init_db   # schema changes are additive and idempotent
+cd deploy/staging/backend && docker compose build
+docker compose run --rm backend python -m backend.database.init_db   # schema first: additive and idempotent
+docker compose up -d
 
 # frontend server
 cd /opt/plantation-rainfall && git pull
