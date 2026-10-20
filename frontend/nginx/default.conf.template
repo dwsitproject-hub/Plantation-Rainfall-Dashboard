@@ -1,0 +1,91 @@
+# Plantation Rainfall Dashboard - frontend (nginx).
+#
+# Serves the static pages and forwards /api/* and /inhouse/data/* to the backend.
+# Before any page is served, nginx asks the backend (/api/auth/check) whether the
+# signed-in user may see it, so all access rules live in one place: the backend.
+#
+# ${BACKEND_URL} is filled in at container start (e.g. http://backend:8000 in
+# docker compose, or the backend server's address on staging/production).
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    server_tokens off;
+    client_max_body_size 64k;
+    charset utf-8;
+    # Relative Location headers, so redirects keep whatever host and port the
+    # browser used (port mappings, load balancers, HTTPS termination).
+    absolute_redirect off;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy same-origin always;
+
+    # Liveness probe for Docker / load balancers (no sign-in, no backend call).
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # ---- backend API and in-house data ------------------------------------
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    location /inhouse/data/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # ---- page access check --------------------------------------------------
+    location = /_auth {
+        internal;
+        proxy_pass ${BACKEND_URL}/api/auth/check;
+        proxy_http_version 1.1;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # 401 (not signed in) and 403 (role not allowed): the backend says where to go.
+    location @auth_redirect {
+        add_header Cache-Control "no-store" always;
+        return 302 $auth_redirect;
+    }
+
+    location = /admin { return 302 /admin/users.html; }
+    location = /admin/ { return 302 /admin/users.html; }
+
+    # ---- static pages ----------------------------------------------------------
+    location / {
+        auth_request /_auth;
+        auth_request_set $auth_redirect $upstream_http_x_auth_redirect;
+        error_page 401 403 = @auth_redirect;
+
+        index dashboard.html index.html;
+        try_files $uri $uri/ =404;
+
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy same-origin always;
+    }
+}

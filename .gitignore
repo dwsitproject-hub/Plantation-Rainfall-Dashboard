@@ -1,9 +1,33 @@
+# Secrets
+.env
 sap_credentials.py
-*.csv
+
+# Runtime data and staging (the data itself lives in PostgreSQL)
+data/
+
+# Legacy generated files, in case an old copy is unpacked into the repo root
+/*.csv
+/*.json
+/*.gz
 *.pdf
 *.log
-*.json
-*.gz
-__pycache__/
+*.tmp
+.dashboard_data_cache.*
 .weather_update.lock
-.dashboard_data_cache.signature
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Office lock files
+~$*
+
+# Local data drops (CSV exports from the old installation)
+resources/
+
+# Staging/production server secrets and logs
+deploy/**/.env.staging
+deploy/**/.env.production
+deploy/**/logs/
+deploy/**/import/

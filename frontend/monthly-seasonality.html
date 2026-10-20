@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Monthly seasonality · Plantation Weather Monitor</title>
+  <meta name="description" content="Monthly rainfall and soil-moisture seasonality across all monitored regions.">
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260928-options">
+  <link rel="stylesheet" href="/css/seasonality.css?v=20260917-overviews">
+  <link rel="stylesheet" href="/css/seasonality_overview.css?v=20261008-region">
+  <link rel="stylesheet" href="/css/sidebar.css?v=20261008-accordion">
+</head>
+<body data-period="month">
+  <header><div><p class="eyebrow">Operations intelligence</p><h1>Monthly seasonality · all regions</h1></div><div class="header-meta"><span class="live-dot"></span><span id="coverage">Loading source data…</span></div></header>
+  <nav class="page-nav" aria-label="Dashboard pages"><a href="/">Dashboard</a><a href="/weekly-seasonality.html">All regions · weekly</a><a href="/monthly-seasonality.html" aria-current="page">All regions · monthly</a><a href="/two-week-comparison.html">Historical comparison</a><a href="/rainfall-summary.html">Jul–Sep summary</a><a href="/forecast-changes.html">Forecast changes</a></nav>
+  <main class="overview-main">
+    <div class="overview-intro"><div><p class="eyebrow">Current year vs selected years</p><p>Rainfall totals and native ECMWF IFS 28–100 cm soil moisture by month. Current-year points are shown only when every calendar day is covered by actual and/or forecast data. Soil-moisture history begins in 2017.</p></div><div class="country-jump"><a href="#indonesia">Indonesia ↓</a><a href="#malaysia">Malaysia ↓</a><a href="#thailand">Thailand ↓</a></div></div>
+    <section class="overview-controls panel" aria-label="Seasonality filters"><div class="overview-filter-group"><label>Region<select id="overviewRegion"></select></label><div class="baseline-controls"><label>From<select id="overviewStart"></select></label><label>To<select id="overviewEnd"></select></label></div></div><div class="legend"><span><i class="current-year"></i>Current year</span><span><i class="past-average"></i>Selected years' average</span><span><i class="past-range"></i>Selected years' min–max</span></div></section>
+    <div id="regionSections" aria-live="polite"></div><div id="error" class="error" hidden></div>
+  </main>
+  <footer>Data: Open-Meteo • Soil moisture: native ECMWF IFS 28–100 cm volumetric water content (m³/m³)</footer>
+  <script src="/js/sidebar.js?v=20261008-accordion3"></script><script src="/js/seasonality_charts.js?v=20260928-temperature"></script><script src="/js/seasonality_overview.js?v=20261008-region"></script>
+</body>
+</html>
