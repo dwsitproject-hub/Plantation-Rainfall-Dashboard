@@ -433,14 +433,37 @@ should time out.
 crontab -e
 ```
 
-The backend server clock is **Asia/Shanghai (+08:00)**, one hour ahead of Jakarta. To
-refresh at 06:30 WIB, Monday–Saturday (adjust to when SAP data is posted), schedule
-07:30 server time:
+The refresh runs twice a day, Monday–Saturday:
+
+- **06:30 WIB** — the new Open-Meteo forecast is ready for the start of the working day.
+- **12:00 WIB** — picks up yesterday's SAP rain readings. Estates read the gauges in the
+  morning and enter them in SAP during the morning, so at 06:30 SAP usually has nothing
+  for yesterday yet and the dashboard's latest SAP date stays two days back (for example,
+  the 06:30 run on 21 Oct showed SAP data up to 19 Oct; the 20 Oct readings were in SAP
+  by early afternoon).
+
+The backend server clock is **Asia/Shanghai (+08:00)**, one hour ahead of Jakarta, so
+the cron lines use server time (07:30 and 13:00):
 
 ```
-# Plantation Rainfall staging refresh: 07:30 server time (Asia/Shanghai) = 06:30 WIB
+# Plantation Rainfall staging refresh (server time is Asia/Shanghai = WIB + 1 hour)
+# 07:30 server time = 06:30 WIB: new forecast for the working day
 30 7 * * 1-6 /opt/plantation-rainfall/deploy/staging/backend/refresh.sh
+# 13:00 server time = 12:00 WIB: yesterday's SAP rain readings
+0 13 * * 1-6 /opt/plantation-rainfall/deploy/staging/backend/refresh.sh
 ```
+
+Check the server's timezone first with `timedatectl | grep "Time zone"`; if it is not
+Asia/Shanghai, shift both lines by the difference from WIB.
+
+If a run is still going when the next one starts, the second one exits at once and
+changes nothing (its log shows "Refresh FAILED with exit code 75", meaning a refresh
+was already running). Pages keep serving the previous data
+while a refresh runs and switch to the new data within about a minute after it finishes.
+
+The SAP date shown on the dashboard is the latest day on which at least one estate
+recorded rain above 0 mm. SAP pre-fills every day to the end of the month with 0 mm,
+so a day with no reported rain anywhere is treated as not yet entered.
 
 The refresh itself runs on Jakarta time inside the container, so forecast run dates
 are WIB dates.
