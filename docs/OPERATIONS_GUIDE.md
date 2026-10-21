@@ -174,6 +174,10 @@ Pages load in well under 2 seconds because nothing is computed while a visitor w
   minute while the new version is built in the background, then the new data.
 - The All Regions refresh also stores the `/api/data` payload in `dashboard_cache`, so a
   restarted backend serves it immediately.
+- Browsers keep CSS and JavaScript files for up to a year, so a page needs only its HTML
+  and data requests. When the frontend image is built, every CSS/JS link is stamped with
+  a hash of the file (`frontend/nginx/stamp_assets.py`); a changed file gets a new link,
+  so nobody has to bump `?v=` by hand and users never get stale code.
 
 Nothing needs to be cleared by hand; restarting the backend simply rebuilds the caches.
 

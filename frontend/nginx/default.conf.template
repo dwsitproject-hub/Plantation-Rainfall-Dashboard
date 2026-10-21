@@ -7,6 +7,14 @@
 # ${BACKEND_URL} is filled in at container start (e.g. http://backend:8000 in
 # docker compose, or the backend server's address on staging/production).
 
+# CSS/JS links are stamped with ?v=<content hash> when the image is built
+# (nginx/stamp_assets.py), so a stamped URL never changes content: browsers may keep
+# it for a year and skip the request. Pages and anything unstamped are revalidated.
+map "$uri|$arg_v" $page_cache_control {
+    "~*\.(css|js)\|[0-9a-f]{12}$"  "private, max-age=31536000, immutable";
+    default                          "no-cache";
+}
+
 server {
     listen 8080;
     server_name _;
@@ -85,7 +93,7 @@ server {
         index dashboard.html index.html;
         try_files $uri $uri/ =404;
 
-        add_header Cache-Control "no-cache" always;
+        add_header Cache-Control $page_cache_control always;
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy same-origin always;
