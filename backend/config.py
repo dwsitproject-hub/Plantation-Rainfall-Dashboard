@@ -121,7 +121,7 @@ SAP_REQUEST_DELAY_SECONDS = _float("SAP_REQUEST_DELAY_SECONDS", 0)
 
 
 def syncera(environment: str) -> dict[str, str]:
-    """Connection settings for the dev (historical) or prod (current) Syncera API."""
+    """Connection settings for a Syncera API environment (the refresh uses prod only)."""
     prefix = f"SYNCERA_{environment.upper()}"
     return {
         "base_url": _get(f"{prefix}_BASE_URL").rstrip("/"),

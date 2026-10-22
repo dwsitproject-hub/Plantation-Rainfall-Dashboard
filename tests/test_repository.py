@@ -222,6 +222,19 @@ def test_reload_replaces_plantation_data_and_retires_removed_estates(db):
     assert repository.plantation_signature() != first
 
 
+def test_prod_only_load_drops_dev_rows_and_stored_prod_rows_round_trip(db):
+    load(LOCATIONS)  # an older load that still had DEV rows
+    prod = [{"company_code": "CR", "estate": "3A", "plant": "P001", "posting_date": "10.15.2026",
+             "total_rainfall_measurement": "7", "remarks": "", "undocumented_field": "y"}]
+    with repository.tracked_run("plantation", "load") as run:
+        repository.load_plantation(run["run_id"], locations=LOCATIONS, forecast=forecast_for(LOCATIONS),
+                                   workbook_name="estates.xlsx", sap_rows={"prod": prod}, rainfall=RAINFALL)
+
+    assert scalar("SELECT count(*) FROM sap_rainfall_raw WHERE environment = 'dev'") == 0
+    assert repository.stored_sap_rows("prod") == prod
+    assert repository.stored_sap_rows("dev") == []
+
+
 def test_failed_plantation_load_keeps_the_previous_data(db):
     load(LOCATIONS)
     signature = repository.plantation_signature()

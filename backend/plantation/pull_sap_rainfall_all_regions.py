@@ -112,7 +112,8 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=config.SAP_WORKERS)
     parser.add_argument("--delay", type=float, default=config.SAP_REQUEST_DELAY_SECONDS,
                         help="Seconds to wait before each API request.")
-    parser.add_argument("--environment", choices=("all", "dev", "prod"), default="all")
+    # The dashboard uses PROD only; DEV is kept as an option for manual checks.
+    parser.add_argument("--environment", choices=("all", "dev", "prod"), default="prod")
     parser.add_argument("--output-dir", type=Path, default=config.WORK_DIR / "sap")
     args = parser.parse_args()
     jobs = [

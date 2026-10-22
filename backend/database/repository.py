@@ -333,6 +333,8 @@ def load_plantation(run_id: int, *, locations: list[dict], forecast: dict, workb
         cursor.execute("UPDATE estate SET is_active = false, updated_at = now() WHERE NOT (estate_id = ANY(%s))",
                        ([item["id"] for item in locations],))
 
+        # Environments no longer pulled (DEV) are removed with their history.
+        cursor.execute("DELETE FROM sap_rainfall_raw WHERE NOT (environment = ANY(%s))", (list(sap_rows),))
         for environment, rows in sap_rows.items():
             cursor.execute("DELETE FROM sap_rainfall_raw WHERE environment = %s", (environment,))
             execute_values(cursor, f"""
@@ -375,6 +377,24 @@ def load_plantation(run_id: int, *, locations: list[dict], forecast: dict, workb
             VALUES %s
         """, daily, page_size=5000)
         _bump_version(cursor, "plantation")
+
+
+def stored_sap_rows(environment: str) -> list[dict]:
+    """SAP rows kept from earlier pulls, shaped like the rows of a freshly pulled CSV."""
+    columns = ", ".join("posting_date_raw" if column == "posting_date" else column for column in SAP_COLUMNS)
+    with transaction() as cursor:
+        cursor.execute(f"""
+            SELECT company_code, estate_code, {columns}, extra_fields FROM sap_rainfall_raw
+            WHERE environment = %s ORDER BY sap_row_id
+        """, (environment,))
+        stored = cursor.fetchall()
+    rows = []
+    for company, estate, *values, extra in stored:
+        row = {"company_code": company, "estate": estate}
+        row.update({column: value for column, value in zip(SAP_COLUMNS, values) if value is not None})
+        row.update(extra or {})
+        rows.append(row)
+    return rows
 
 
 def plantations_document() -> dict:

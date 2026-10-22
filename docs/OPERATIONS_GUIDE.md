@@ -37,7 +37,7 @@ All commands below are run from the repository root.
    ```
 
    - `DATABASE_PASSWORD`: choose a strong password for the application database account.
-   - `SYNCERA_DEV_CLIENT_SECRET` / `SYNCERA_PROD_CLIENT_SECRET`: the Syncera client secrets.
+   - `SYNCERA_PROD_CLIENT_SECRET`: the Syncera PROD client secret.
    - `DASHBOARD_PUBLIC_URL`: the address users open, e.g. `http://192.168.1.82:8080/`.
 
    `.env` contains live secrets. Never commit or share it (it is in `.gitignore`).
@@ -127,9 +127,13 @@ This performs, in order:
 2. All Regions: historical rainfall and temperature (2000 to yesterday), historical
    soil moisture (missing years only, from 2017), and the 14-day rainfall,
    temperature and soil-moisture forecast. Each forecast run is archived.
-3. In-house plantations: SAP rainfall for every estate in `SAP_ESTATES` (DEV =
-   historical, PROD = current), the Open-Meteo 92-day recent actuals and 14-day
-   forecast for each estate in the workbook, then one transactional load into PostgreSQL.
+3. In-house plantations: SAP PROD rainfall for every estate in `SAP_ESTATES`, the
+   Open-Meteo 92-day recent actuals and 14-day forecast for each estate in the
+   workbook, then one transactional load into PostgreSQL. PROD returns about the
+   current month, so each pull is merged into the PROD rows stored by earlier
+   refreshes (for every estate and posting date in the new pull the new rows win;
+   older days are kept). The SAP history therefore starts with the first PROD
+   refresh and grows from there. The SAP DEV API is not used.
 4. Stops a dashboard server previously started by this launcher, starts a new
    one and opens `DASHBOARD_PUBLIC_URL`.
 
