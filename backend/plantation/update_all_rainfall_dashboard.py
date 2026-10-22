@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Safely refresh SAP rainfall, the plantation Open-Meteo forecast and the in-house dashboard data.
 
+Rainfall comes from the Syncera PROD API only. PROD returns roughly the current
+month, so each pull is merged into the PROD rows stored by earlier refreshes:
+for every estate and posting date in the new pull the new rows win, and all other
+stored days are kept. The dashboard history therefore grows with every refresh.
+
 Every download is staged in a temporary folder and validated first. Only then is
 everything loaded into PostgreSQL in one transaction, so a failed refresh never
 replaces the live dashboard data.
@@ -21,7 +26,7 @@ from backend import config
 from backend.database import repository
 
 
-SECRET_ENVIRONMENTS = ("dev", "prod")
+SECRET_ENVIRONMENTS = ("prod",)
 
 
 def validate_setup(workbook: Path) -> None:
@@ -40,6 +45,25 @@ def run_step(label: str, command: list[str]) -> None:
 def read_csv(path: Path) -> list[dict]:
     with path.open(encoding="utf-8-sig", newline="") as stream:
         return list(csv.DictReader(stream))
+
+
+def sap_day(row: dict) -> tuple[str, str, str]:
+    return ((row.get("company_code") or "").strip(), (row.get("estate") or "").strip(),
+            (row.get("posting_date") or "").strip())
+
+
+def merge_sap_rows(stored: list[dict], pulled: list[dict]) -> list[dict]:
+    """Stored PROD rows plus a new pull; for each estate and posting date in the pull, the pull wins."""
+    refreshed = {sap_day(row) for row in pulled}
+    return [row for row in stored if sap_day(row) not in refreshed] + pulled
+
+
+def write_csv(rows: list[dict], path: Path) -> None:
+    fields = list(dict.fromkeys(field for row in rows for field in row))
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields, restval="")
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def validate_csv(path: Path) -> int:
@@ -120,17 +144,15 @@ def main() -> int:
             sap_dir.mkdir()
             data_dir.mkdir()
 
-            run_step("1/4 Pull SAP rainfall for all plantations", [
+            run_step("1/4 Pull SAP PROD rainfall for all plantations", [
                 sys.executable, "-m", "backend.plantation.pull_sap_rainfall_all_regions",
-                "--environment", "all",
+                "--environment", "prod",
                 "--workers", str(max(1, args.workers)),
                 "--delay", str(max(0, args.delay)),
                 "--output-dir", str(sap_dir),
             ])
 
-            historical = sap_dir / "SAP rainfall data historical.csv"
             current = sap_dir / "SAP rainfall data current.csv"
-            historical_rows = validate_csv(historical)
             current_rows = validate_csv(current)
             current_latest = latest_actual_date(current)
             current_month = date.today().replace(day=1)
@@ -140,6 +162,14 @@ def main() -> int:
                     f"expected at least {current_month:%d %b %Y}."
                 )
 
+            # Keep the days PROD no longer returns (earlier months) from previous refreshes.
+            stored_rows = repository.stored_sap_rows("prod")
+            sap_rows = merge_sap_rows(stored_rows, read_csv(current))
+            all_prod = sap_dir / "SAP rainfall data prod (stored and new).csv"
+            write_csv(sap_rows, all_prod)
+            print(f"SAP PROD rows: {current_rows:,} pulled, {len(stored_rows):,} stored before, "
+                  f"{len(sap_rows):,} after merging", flush=True)
+
             run_step("2/4 Pull Open-Meteo forecast and rebuild plantation locations", [
                 sys.executable, "-m", "backend.plantation.update_location_forecast",
                 "--workbook", str(workbook),
@@ -148,8 +178,7 @@ def main() -> int:
 
             run_step("3/4 Build dashboard rainfall data", [
                 sys.executable, "-m", "backend.plantation.build_dashboard_data",
-                "--historical", str(historical),
-                "--current", str(current),
+                "--input", str(all_prod),
                 "--output", str(data_dir / "rainfall_daily.json"),
             ])
 
@@ -167,16 +196,17 @@ def main() -> int:
                     locations=json.loads((data_dir / "plantations.json").read_text(encoding="utf-8"))["locations"],
                     forecast=json.loads((data_dir / "forecast_14day.json").read_text(encoding="utf-8")),
                     workbook_name=workbook.name,
-                    sap_rows={"dev": read_csv(historical), "prod": read_csv(current)},
+                    sap_rows={"prod": sap_rows},
                     rainfall=rainfall,
                 )
                 run["rows"] = rainfall_records
                 run["sap_actual_cutoff"] = rainfall["sap_actual_cutoff"]
-                run["message"] = f"SAP dev {historical_rows} rows, prod {current_rows} rows; {forecasts} estates"
+                run["message"] = (f"SAP prod {current_rows} rows pulled, {len(sap_rows)} stored; "
+                                  f"{forecasts} estates")
 
         print("\nDashboard refresh completed successfully.")
-        print(f"SAP historical rows: {historical_rows:,}")
-        print(f"SAP current rows: {current_rows:,}")
+        print(f"SAP PROD rows pulled: {current_rows:,}")
+        print(f"SAP PROD rows stored: {len(sap_rows):,}")
         print(f"Latest PROD actual date: {current_latest:%d %b %Y}")
         print(f"Dashboard rainfall records: {rainfall_records:,}")
         print(f"Plantation forecasts: {forecasts:,}")

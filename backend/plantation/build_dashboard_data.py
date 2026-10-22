@@ -1,4 +1,4 @@
-"""Clean the staged SAP CSVs into the daily rainfall records used by the in-house dashboard."""
+"""Clean staged SAP CSV files into the daily rainfall records used by the in-house dashboard."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from pathlib import Path
 
 from backend import config
 
-DEFAULT_HISTORICAL = config.WORK_DIR / "sap" / "SAP rainfall data historical.csv"
 DEFAULT_CURRENT = config.WORK_DIR / "sap" / "SAP rainfall data current.csv"
 DEFAULT_OUTPUT = config.WORK_DIR / "plantation" / "rainfall_daily.json"
 
@@ -63,11 +62,11 @@ def parse_posting_date(value: str, date_format: str) -> date_type | None:
     return parsed
 
 
-def build(historical: Path, current: Path, output: Path, date_order: str = "auto") -> int:
+def build(sources: list[Path], output: Path, date_order: str = "auto") -> int:
     seen = set()
     records = []
     skipped_dates = []
-    for source in (historical, current):
+    for source in sources:
         date_format = detect_date_format(source, date_order)
         print(f"Detected {'DD.MM.YYYY' if date_format == '%d.%m.%Y' else 'MM.DD.YYYY'} in {source.name}")
         with source.open(encoding="utf-8-sig", newline="") as stream:
@@ -141,12 +140,12 @@ def build(historical: Path, current: Path, output: Path, date_order: str = "auto
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build rainfall-dashboard JSON from SAP CSV files.")
-    parser.add_argument("--historical", type=Path, default=DEFAULT_HISTORICAL)
-    parser.add_argument("--current", type=Path, default=DEFAULT_CURRENT)
+    parser.add_argument("--input", type=Path, action="append", dest="inputs",
+                        help=f"SAP CSV file; repeat for several (default: {DEFAULT_CURRENT}).")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--date-order", choices=("auto", "dmy", "mdy"), default="auto")
     args = parser.parse_args()
-    build(args.historical, args.current, args.output, args.date_order)
+    build(args.inputs or [DEFAULT_CURRENT], args.output, args.date_order)
 
 
 if __name__ == "__main__":

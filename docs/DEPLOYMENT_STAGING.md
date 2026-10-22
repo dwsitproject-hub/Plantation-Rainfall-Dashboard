@@ -271,7 +271,7 @@ Fill in:
 | --- | --- |
 | `DATABASE_PASSWORD` | the `rainfall_app` password from 4.3 |
 | `DATABASE_SSLMODE` | `require` if RDS SSL is on, otherwise `prefer` (SSL was **off** on the staging instance on 20 Oct 2026) |
-| `SYNCERA_DEV_CLIENT_SECRET`, `SYNCERA_PROD_CLIENT_SECRET` | from your local `.env` |
+| `SYNCERA_PROD_CLIENT_SECRET` | from your local `.env` (DEV is not used) |
 | `SSO_CLIENT_ID` | as registered in 3.2 (`plantation-rainfall-staging`) |
 | `SSO_CLIENT_SECRET` | empty (the Hub uses public clients with PKCE) |
 | `SSO_REDIRECT_URI` | `http://172.28.92.56:3070/api/sso/callback` (must match Hub exactly) |
