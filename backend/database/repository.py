@@ -8,6 +8,7 @@ so the calculation code is unchanged by the move to PostgreSQL.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from typing import Any, Iterable, Iterator
@@ -34,6 +35,21 @@ def _iso_utc(value: datetime) -> str:
 def _region_ids(cursor) -> dict[tuple[str, str], int]:
     cursor.execute("SELECT country, region_name, region_id FROM weather_region")
     return {(country, region): region_id for country, region, region_id in cursor.fetchall()}
+
+
+def _bump_version(cursor, name: str) -> None:
+    """Mark data as changed (same transaction as the write) for the serving caches."""
+    cursor.execute("""
+        INSERT INTO data_version (name, version, changed_at) VALUES (%s, 1, now())
+        ON CONFLICT (name) DO UPDATE SET version = data_version.version + 1, changed_at = now()
+    """, (name,))
+
+
+def data_version(name: str) -> int:
+    with transaction() as cursor:
+        cursor.execute("SELECT version FROM data_version WHERE name = %s", (name,))
+        row = cursor.fetchone()
+    return row[0] if row else 0
 
 
 def _value(raw: Any) -> float | None:
@@ -145,6 +161,7 @@ def upsert_weather_regions(regions: list[dict]) -> int:
             item["temperature_latitude"], item["temperature_longitude"],
             item["is_major_plantation"], item["display_order"],
         ) for item in regions])
+        _bump_version(cursor, "weather")
     return len(regions)
 
 
@@ -157,26 +174,31 @@ def known_regions() -> set[tuple[str, str]]:
         return set(_region_ids(cursor))
 
 
+def _weather_values(cursor, metric: str, data_type: str, rows: Iterable[dict]) -> list[tuple]:
+    if metric not in METRIC_FIELDS:
+        raise ValueError(f"Unknown metric {metric}")
+    regions = _region_ids(cursor)
+    values = []
+    for row in rows:
+        value = _value(row.get(metric))
+        if value is None:
+            continue  # Open-Meteo returned no value for that day
+        region_id = regions.get((row["country"], row["region"]))
+        if region_id is None:
+            raise ValueError(f"Unknown weather region {row['country']} / {row['region']}")
+        values.append((
+            region_id, metric, row["date"], data_type, value,
+            row["latitude"], row["longitude"], row.get("soil_depth_cm") or None,
+            row.get("soil_method") or None, row["source"], row["retrieved_at_utc"],
+        ))
+    return values
+
+
 def replace_weather(metric: str, data_type: str, rows: Iterable[dict],
                     *, date_from: str | None = None, date_to: str | None = None) -> int:
     """Atomically replace one metric/data-type slice (optionally a date range)."""
-    if metric not in METRIC_FIELDS:
-        raise ValueError(f"Unknown metric {metric}")
     with transaction() as cursor:
-        regions = _region_ids(cursor)
-        values = []
-        for row in rows:
-            value = _value(row.get(metric))
-            if value is None:
-                continue  # Open-Meteo returned no value for that day
-            region_id = regions.get((row["country"], row["region"]))
-            if region_id is None:
-                raise ValueError(f"Unknown weather region {row['country']} / {row['region']}")
-            values.append((
-                region_id, metric, row["date"], data_type, value,
-                row["latitude"], row["longitude"], row.get("soil_depth_cm") or None,
-                row.get("soil_method") or None, row["source"], row["retrieved_at_utc"],
-            ))
+        values = _weather_values(cursor, metric, data_type, rows)
         scope = ["metric = %s", "data_type = %s"]
         parameters: list[Any] = [metric, data_type]
         if date_from:
@@ -189,7 +211,48 @@ def replace_weather(metric: str, data_type: str, rows: Iterable[dict],
                 longitude, soil_depth_cm, method, source, retrieved_at)
             VALUES %s
         """, values, page_size=5000)
+        _bump_version(cursor, "weather")
     return len(values)
+
+
+def upsert_weather(metric: str, data_type: str, rows: Iterable[dict]) -> int:
+    """Insert new days and update changed values; returns how many rows were written.
+
+    Unchanged days are left alone, and the serving caches rebuild only if something changed.
+    """
+    with transaction() as cursor:
+        values = _weather_values(cursor, metric, data_type, rows)
+        if not values:
+            return 0
+        written = execute_values(cursor, """
+            INSERT INTO weather_daily (region_id, metric, obs_date, data_type, value, latitude,
+                longitude, soil_depth_cm, method, source, retrieved_at)
+            VALUES %s
+            ON CONFLICT (region_id, metric, obs_date, data_type) DO UPDATE SET
+                value = EXCLUDED.value, latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude,
+                soil_depth_cm = EXCLUDED.soil_depth_cm, method = EXCLUDED.method,
+                source = EXCLUDED.source, retrieved_at = EXCLUDED.retrieved_at
+            WHERE (weather_daily.value, weather_daily.latitude, weather_daily.longitude,
+                   weather_daily.soil_depth_cm, weather_daily.method)
+                  IS DISTINCT FROM
+                  (EXCLUDED.value, EXCLUDED.latitude, EXCLUDED.longitude,
+                   EXCLUDED.soil_depth_cm, EXCLUDED.method)
+            RETURNING 1
+        """, values, page_size=5000, fetch=True)
+        if written:
+            _bump_version(cursor, "weather")
+    return len(written)
+
+
+def latest_weather_date(metric: str, data_type: str, *, regions: int) -> date | None:
+    """The last day stored for every one of `regions` regions (None until all have data)."""
+    with transaction() as cursor:
+        cursor.execute("""
+            SELECT CASE WHEN count(*) >= %s THEN min(latest) END
+            FROM (SELECT region_id, max(obs_date) AS latest FROM weather_daily
+                  WHERE metric = %s AND data_type = %s GROUP BY region_id) per_region
+        """, (regions, metric, data_type))
+        return cursor.fetchone()[0]
 
 
 def read_weather(metric: str, data_type: str | None = None, *, country: str | None = None,
@@ -223,13 +286,20 @@ def read_weather(metric: str, data_type: str | None = None, *, country: str | No
 
 
 def weather_signature() -> str:
-    """Changes whenever any weather row is added, removed or re-pulled."""
+    """Changes whenever weather rows or forecast runs are written (see data_version)."""
+    return f"weather-v{data_version('weather')}"
+
+
+def check_schema() -> None:
+    """Raise if the database is unreachable or the schema is missing (health check)."""
     with transaction() as cursor:
-        cursor.execute("SELECT count(*), max(retrieved_at) FROM weather_daily")
-        count, latest = cursor.fetchone()
-        cursor.execute("SELECT count(*), max(run_date) FROM forecast_snapshot")
-        snapshot_count, snapshot_latest = cursor.fetchone()
-    return f"{count}:{latest}:{snapshot_count}:{snapshot_latest}"
+        cursor.execute("SELECT 1 FROM refresh_run LIMIT 1")
+        cursor.execute("SELECT 1 FROM data_version LIMIT 1")
+
+
+def plantation_signature() -> str:
+    """Changes whenever plantation data is replaced (see data_version)."""
+    return f"plantation-v{data_version('plantation')}"
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +349,7 @@ def save_snapshot(run_date: str, rows: list[dict], *, retention_runs: int,
             DELETE FROM forecast_snapshot WHERE run_date NOT IN (
                 SELECT DISTINCT run_date FROM forecast_snapshot ORDER BY run_date DESC LIMIT %s)
         """, (retention_runs,))
+        _bump_version(cursor, "weather")
     return len(values)
 
 
@@ -286,9 +357,78 @@ def save_snapshot(run_date: str, rows: list[dict], *, retention_runs: int,
 # In-house plantation
 # ---------------------------------------------------------------------------
 
+_SAP_RAW_COLUMNS = ", ".join("posting_date_raw" if column == "posting_date" else column for column in SAP_COLUMNS)
+
+
+def _sap_raw_key(company: str, estate: str, values: Iterable[Any], extra: dict | None) -> tuple:
+    return (company, estate, *[value or "" for value in values], json.dumps(extra or {}, sort_keys=True))
+
+
+def _sync_sap_raw(cursor, run_id: int, environment: str, rows: list[dict]) -> tuple[int, int]:
+    """Make the stored rows of one environment equal to rows, touching only rows that differ."""
+    cursor.execute(f"""
+        SELECT sap_row_id, company_code, estate_code, {_SAP_RAW_COLUMNS}, extra_fields
+        FROM sap_rainfall_raw WHERE environment = %s
+    """, (environment,))
+    stored: dict[tuple, list[int]] = defaultdict(list)
+    for row_id, company, estate, *values, extra in cursor.fetchall():
+        stored[_sap_raw_key(company, estate, values, extra)].append(row_id)
+    new = []
+    for row in rows:
+        company, estate = (row.get("company_code") or "").strip(), (row.get("estate") or "").strip()
+        values = [row.get(column) for column in SAP_COLUMNS]
+        extra = {key: value for key, value in row.items()
+                 if key not in SAP_COLUMNS and key not in ("company_code", "estate")}
+        unchanged = stored.get(_sap_raw_key(company, estate, values, extra))
+        if unchanged:
+            unchanged.pop()  # identical row already stored: keep it
+        else:
+            new.append((run_id, environment, company, estate, *values, json.dumps(extra)))
+    removed = [row_id for row_ids in stored.values() for row_id in row_ids]
+    if removed:
+        cursor.execute("DELETE FROM sap_rainfall_raw WHERE sap_row_id = ANY(%s)", (removed,))
+    if new:
+        execute_values(cursor, f"""
+            INSERT INTO sap_rainfall_raw (run_id, environment, company_code, estate_code,
+                {_SAP_RAW_COLUMNS}, extra_fields) VALUES %s
+        """, new, page_size=5000)
+    return len(new), len(removed)
+
+
+def _sync_rainfall_daily(cursor, run_id: int, records: list[list]) -> tuple[int, int]:
+    """Make plantation_rainfall_daily equal to records, touching only rows that differ."""
+    cursor.execute("""
+        SELECT record_id, company_code, estate_code, plant, measurement_tool, obs_date, rainfall_mm
+        FROM plantation_rainfall_daily
+    """)
+    stored: dict[tuple, list[int]] = defaultdict(list)
+    for record_id, company, estate, plant, tool, day, value in cursor.fetchall():
+        stored[(company, estate, plant, tool, day.isoformat(), float(value))].append(record_id)
+    new = []
+    for company, estate, plant, tool, day, value in records:
+        unchanged = stored.get((company, estate, plant, tool, day, float(value)))
+        if unchanged:
+            unchanged.pop()
+        else:
+            new.append((run_id, company, estate, plant, tool, day, value))
+    removed = [record_id for record_ids in stored.values() for record_id in record_ids]
+    if removed:
+        cursor.execute("DELETE FROM plantation_rainfall_daily WHERE record_id = ANY(%s)", (removed,))
+    if new:
+        execute_values(cursor, """
+            INSERT INTO plantation_rainfall_daily (run_id, company_code, estate_code, plant,
+                measurement_tool, obs_date, rainfall_mm) VALUES %s
+        """, new, page_size=5000)
+    return len(new), len(removed)
+
+
 def load_plantation(run_id: int, *, locations: list[dict], forecast: dict, workbook_name: str,
-                    sap_rows: dict[str, list[dict]], rainfall: dict) -> None:
-    """Replace all plantation data in a single transaction (all or nothing)."""
+                    sap_rows: dict[str, list[dict]], rainfall: dict) -> dict[str, int]:
+    """Load plantation data in a single transaction (all or nothing).
+
+    SAP rows and daily rainfall are synchronised: only new or changed rows are written
+    and rows no longer present are removed. Returns how many rows were added/removed.
+    """
     as_of = date.fromisoformat(forecast["as_of_date"])
     with transaction() as cursor:
         execute_values(cursor, """
@@ -308,25 +448,14 @@ def load_plantation(run_id: int, *, locations: list[dict], forecast: dict, workb
         cursor.execute("UPDATE estate SET is_active = false, updated_at = now() WHERE NOT (estate_id = ANY(%s))",
                        ([item["id"] for item in locations],))
 
+        # Environments no longer pulled (DEV) are removed with their history.
+        cursor.execute("DELETE FROM sap_rainfall_raw WHERE NOT (environment = ANY(%s))", (list(sap_rows),))
+        changes = {"sap_added": 0, "sap_removed": 0}
         for environment, rows in sap_rows.items():
-            cursor.execute("DELETE FROM sap_rainfall_raw WHERE environment = %s", (environment,))
-            execute_values(cursor, f"""
-                INSERT INTO sap_rainfall_raw (run_id, environment, company_code, estate_code,
-                    {', '.join('posting_date_raw' if c == 'posting_date' else c for c in SAP_COLUMNS)},
-                    extra_fields) VALUES %s
-            """, [(
-                run_id, environment, (row.get("company_code") or "").strip(),
-                (row.get("estate") or "").strip(),
-                *[row.get(column) for column in SAP_COLUMNS],
-                json.dumps({key: value for key, value in row.items()
-                            if key not in SAP_COLUMNS and key not in ("company_code", "estate")}),
-            ) for row in rows], page_size=5000)
-
-        cursor.execute("DELETE FROM plantation_rainfall_daily")
-        execute_values(cursor, """
-            INSERT INTO plantation_rainfall_daily (run_id, company_code, estate_code, plant,
-                measurement_tool, obs_date, rainfall_mm) VALUES %s
-        """, [(run_id, *record) for record in rainfall["records"]], page_size=5000)
+            added, removed = _sync_sap_raw(cursor, run_id, environment, rows)
+            changes["sap_added"] += added
+            changes["sap_removed"] += removed
+        changes["daily_added"], changes["daily_removed"] = _sync_rainfall_daily(cursor, run_id, rainfall["records"])
 
         cursor.execute("""
             INSERT INTO plantation_forecast_run (run_id, as_of_date, generated_at, past_days,
@@ -349,6 +478,36 @@ def load_plantation(run_id: int, *, locations: list[dict], forecast: dict, workb
             INSERT INTO plantation_forecast_daily (estate_id, valid_date, data_type, rainfall_mm, run_id)
             VALUES %s
         """, daily, page_size=5000)
+        _bump_version(cursor, "plantation")
+    return changes
+
+
+def last_succeeded(pipeline: str, step: str) -> datetime | None:
+    """When the step last finished successfully (None if never)."""
+    with transaction() as cursor:
+        cursor.execute("""
+            SELECT max(finished_at) FROM refresh_run
+            WHERE pipeline = %s AND step = %s AND status = 'succeeded'
+        """, (pipeline, step))
+        return cursor.fetchone()[0]
+
+
+def stored_sap_rows(environment: str) -> list[dict]:
+    """SAP rows kept from earlier pulls, shaped like the rows of a freshly pulled CSV."""
+    columns = ", ".join("posting_date_raw" if column == "posting_date" else column for column in SAP_COLUMNS)
+    with transaction() as cursor:
+        cursor.execute(f"""
+            SELECT company_code, estate_code, {columns}, extra_fields FROM sap_rainfall_raw
+            WHERE environment = %s ORDER BY sap_row_id
+        """, (environment,))
+        stored = cursor.fetchall()
+    rows = []
+    for company, estate, *values, extra in stored:
+        row = {"company_code": company, "estate": estate}
+        row.update({column: value for column, value in zip(SAP_COLUMNS, values) if value is not None})
+        row.update(extra or {})
+        rows.append(row)
+    return rows
 
 
 def plantations_document() -> dict:
@@ -441,15 +600,6 @@ def rainfall_document() -> dict:
         "companies": {key: sorted(value) for key, value in sorted(companies.items())},
         "records": records,
     }
-
-
-def plantation_signature() -> str:
-    with transaction() as cursor:
-        cursor.execute("""
-            SELECT coalesce(max(run_id), 0) FROM refresh_run
-            WHERE pipeline = 'plantation' AND status = 'succeeded'
-        """)
-        return str(cursor.fetchone()[0])
 
 
 # ---------------------------------------------------------------------------

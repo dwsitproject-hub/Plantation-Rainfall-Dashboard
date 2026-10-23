@@ -51,6 +51,8 @@ DATABASE_PORT = _int("DATABASE_PORT", 5432)
 DATABASE_NAME = _get("DATABASE_NAME", "plantation_rainfall")
 # disable | prefer | require | verify-full (use require or stricter for Apsara RDS).
 DATABASE_SSLMODE = _get("DATABASE_SSLMODE", "prefer")
+# Open connections kept per backend process (reused across requests).
+DATABASE_POOL_SIZE = _int("DATABASE_POOL_SIZE", 10)
 
 
 def database_user() -> str:
@@ -108,18 +110,24 @@ HTTP_USER_AGENT = _get("HTTP_USER_AGENT", "plantation-rainfall-dashboard/2.0")
 
 HISTORICAL_RAINFALL_START_DATE = _get("HISTORICAL_RAINFALL_START_DATE", "2000-01-01")
 SOIL_MOISTURE_START_DATE = _get("SOIL_MOISTURE_START_DATE", "2017-01-01")
+# Each refresh re-downloads only this many days before the last stored day
+# (Open-Meteo revises its most recent archive days); older history is kept as stored.
+HISTORY_OVERLAP_DAYS = _int("HISTORY_OVERLAP_DAYS", 14)
 ALL_REGIONS_FORECAST_DAYS = _int("ALL_REGIONS_FORECAST_DAYS", 14)
 FORECAST_SNAPSHOT_RETENTION_RUNS = _int("FORECAST_SNAPSHOT_RETENTION_RUNS", 90)
 PLANTATION_FORECAST_DAYS = _int("PLANTATION_FORECAST_DAYS", 14)
 PLANTATION_PAST_DAYS = _int("PLANTATION_PAST_DAYS", 92)
 
 # --- SAP / Syncera --------------------------------------------------------
-SAP_WORKERS = _int("SAP_WORKERS", 4)
-SAP_REQUEST_DELAY_SECONDS = _float("SAP_REQUEST_DELAY_SECONDS", 0)
+# Pace of Syncera requests (measured limit: 10 a minute; 9 leaves a margin).
+SAP_REQUESTS_PER_MINUTE = _float("SAP_REQUESTS_PER_MINUTE", 9)
+# Previous months (rain-data) are pulled again after this many days, and always on the
+# first refresh of a month; every refresh pulls the current month (rain-data-current).
+SAP_HISTORY_REFRESH_DAYS = _int("SAP_HISTORY_REFRESH_DAYS", 7)
 
 
 def syncera(environment: str) -> dict[str, str]:
-    """Connection settings for the dev (historical) or prod (current) Syncera API."""
+    """Connection settings for a Syncera API environment (the refresh uses prod only)."""
     prefix = f"SYNCERA_{environment.upper()}"
     return {
         "base_url": _get(f"{prefix}_BASE_URL").rstrip("/"),

@@ -90,7 +90,7 @@ def test_build_applies_every_cleaning_rule(tmp_path, capsys):
     ])
     output = tmp_path / "out" / "rainfall_daily.json"
 
-    assert build(historical, current, output) == 4
+    assert build([historical, current], output) == 4
 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["records"] == [
@@ -117,7 +117,7 @@ def test_duplicates_are_removed_across_files_but_distinct_tools_are_kept(tmp_pat
     current = write_sap_csv(tmp_path / "current.csv", [sap_row("15.03.2024", "3", tool="Ombrometer")])
     output = tmp_path / "rainfall_daily.json"
 
-    assert build(historical, current, output) == 2
+    assert build([historical, current], output) == 2
     tools = [record[3] for record in json.loads(output.read_text(encoding="utf-8"))["records"]]
     assert tools == ["Manual gauge", "Ombrometer"]
 
@@ -126,11 +126,11 @@ def test_build_fails_without_any_rainfall_above_zero(tmp_path):
     historical = write_sap_csv(tmp_path / "historical.csv", [sap_row("15.03.2024", "0")])
     current = write_sap_csv(tmp_path / "current.csv", [sap_row("03.15.2024", "0")])
     with pytest.raises(ValueError, match="no portfolio date with rainfall above zero"):
-        build(historical, current, tmp_path / "out.json")
+        build([historical, current], tmp_path / "out.json")
 
 
 def test_build_fails_when_no_usable_records(tmp_path):
     historical = write_sap_csv(tmp_path / "historical.csv", [sap_row("15.03.2024", "n/a")])
     current = write_sap_csv(tmp_path / "current.csv", [sap_row("03.15.2024", "")])
     with pytest.raises(ValueError, match="no usable rainfall records"):
-        build(historical, current, tmp_path / "out.json")
+        build([historical, current], tmp_path / "out.json")

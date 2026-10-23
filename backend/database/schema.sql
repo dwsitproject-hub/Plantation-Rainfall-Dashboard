@@ -318,3 +318,16 @@ CREATE TABLE IF NOT EXISTS sso_login_request (
     expires_at     timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_sso_login_request_expires ON sso_login_request (expires_at);
+
+-- ---------------------------------------------------------------------------
+-- Data versions (cheap change detection for the serving caches)
+-- ---------------------------------------------------------------------------
+
+-- Bumped in the same transaction as every write to the data it names, so the
+-- dashboard can tell in well under a millisecond whether a cached response is stale.
+CREATE TABLE IF NOT EXISTS data_version (
+    name        text PRIMARY KEY,                    -- weather | plantation
+    version     bigint      NOT NULL DEFAULT 0,
+    changed_at  timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO data_version (name) VALUES ('weather'), ('plantation') ON CONFLICT (name) DO NOTHING;

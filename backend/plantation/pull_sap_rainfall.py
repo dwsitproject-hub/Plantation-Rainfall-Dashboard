@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Pull Syncera/SAP rainfall data from the documented Dev and Prod APIs.
+"""Shared Syncera/SAP client (authentication, requests, CSV output), plus a manual
+single-estate pull for checks.
 
-Default output mapping requested by the user:
-  Dev  -> SAP rainfall data historical.csv
-  Prod -> SAP rainfall data current.csv
+The dashboard refresh uses pull_sap_rainfall_all_regions, which follows API guide
+v1.5 (PROD only): rain-data-current for the current month and rain-data for all
+previous months. The guide documents no date filter; tokens last 3600 seconds.
 
-The API guides do not document date filters or explicitly define Dev as
-historical and Prod as current. Use --historical-environment and
---current-environment to change this mapping if Syncera confirms otherwise.
-
-Base URLs, client IDs and secrets are read from .env (SYNCERA_DEV_* / SYNCERA_PROD_*).
-This module is also the shared Syncera client used by the all-estates pull.
+Base URLs, client IDs and secrets are read from .env (SYNCERA_PROD_*; SYNCERA_DEV_*
+only for this manual tool's --historical-environment dev).
 """
 
 from __future__ import annotations

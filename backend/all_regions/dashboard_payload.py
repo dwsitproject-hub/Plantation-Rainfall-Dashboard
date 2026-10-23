@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import sys
 import threading
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -29,12 +30,9 @@ def save_payload_cache(payload: dict) -> tuple[bytes, bytes]:
     return body, compressed
 
 
-def payload_bytes() -> tuple[bytes, bytes]:
-    """Return cached API bytes; rebuild only after the weather data changes."""
+def load_payload(signature: str) -> tuple[bytes, bytes]:
+    """The payload saved by the last refresh, or a fresh build (takes seconds)."""
     global _payload_memory
-    signature = repository.weather_signature()
-    if _payload_memory and _payload_memory[0] == signature:
-        return _payload_memory[1], _payload_memory[2]
     with _payload_lock:
         if _payload_memory and _payload_memory[0] == signature:
             return _payload_memory[1], _payload_memory[2]
@@ -43,6 +41,30 @@ def payload_bytes() -> tuple[bytes, bytes]:
             _payload_memory = (signature, *cached)
             return cached
         return save_payload_cache(build_payload())
+
+
+def _load_in_background(signature: str) -> None:
+    try:
+        load_payload(signature)
+    except Exception as exc:
+        print(f"Rebuilding /api/data failed: {exc}", file=sys.stderr, flush=True)
+
+
+def payload_bytes() -> tuple[bytes, bytes]:
+    """Return cached API bytes; rebuild only after the weather data changes.
+
+    After a change the previous payload is served until the new one is ready.
+    """
+    signature = repository.weather_signature()
+    memory = _payload_memory
+    if memory and memory[0] == signature:
+        return memory[1], memory[2]
+    if memory:
+        if not _payload_lock.locked():
+            threading.Thread(target=_load_in_background, args=(signature,), name="rebuild /api/data",
+                             daemon=True).start()
+        return memory[1], memory[2]
+    return load_payload(signature)
 
 
 def _read(value_field: str) -> list[dict]:

@@ -32,7 +32,6 @@ def refresh() -> int:
         run(
             "2/2 Pulling SAP and plantation Open-Meteo data",
             "backend.plantation.update_all_rainfall_dashboard",
-            "--workers", str(config.SAP_WORKERS),
         )
         print("\nAll dashboard data was refreshed successfully.")
         return 0

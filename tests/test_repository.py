@@ -117,6 +117,31 @@ def test_weather_signature_changes_when_data_changes(db):
     assert len({before, after_weather, repository.weather_signature()}) == 3
 
 
+def test_upsert_writes_only_new_or_changed_days(db):
+    rows = [weather_row("2026-10-01", 1.0), weather_row("2026-10-02", 2.0)]
+    assert repository.upsert_weather("rainfall_mm", "historical_actual", rows) == 2
+    version = repository.weather_signature()
+
+    # Same values again: nothing written, caches stay valid.
+    assert repository.upsert_weather("rainfall_mm", "historical_actual", rows) == 0
+    assert repository.weather_signature() == version
+
+    # One revised day and one new day; older days are kept as stored.
+    changed = [weather_row("2026-10-02", 2.5), weather_row("2026-10-03", 0.0)]
+    assert repository.upsert_weather("rainfall_mm", "historical_actual", changed) == 2
+    assert repository.weather_signature() != version
+    values = {row["date"]: row["rainfall_mm"] for row in repository.read_weather("rainfall_mm", "historical_actual")}
+    assert values == {"2026-10-01": 1.0, "2026-10-02": 2.5, "2026-10-03": 0.0}
+
+
+def test_latest_weather_date_needs_every_region(db):
+    assert repository.latest_weather_date("rainfall_mm", "historical_actual", regions=2) is None
+    repository.upsert_weather("rainfall_mm", "historical_actual", [
+        weather_row("2026-10-05", 1.0), weather_row("2026-10-03", 1.0, country="Malaysia", region="Sabah")])
+    assert repository.latest_weather_date("rainfall_mm", "historical_actual", regions=3) is None
+    assert str(repository.latest_weather_date("rainfall_mm", "historical_actual", regions=2)) == "2026-10-03"
+
+
 # --- Refresh audit --------------------------------------------------------
 
 def test_tracked_run_records_success_and_failure(db):
@@ -189,7 +214,8 @@ def test_plantation_documents_are_empty_until_loaded(db):
 
 
 def test_plantation_round_trip(db):
-    run_id = load(LOCATIONS)
+    before = repository.plantation_signature()
+    load(LOCATIONS)
 
     assert repository.plantations_document() == {"source": "estates.xlsx", "locations": LOCATIONS}
     assert repository.forecast_document() == forecast_for(LOCATIONS)
@@ -197,7 +223,7 @@ def test_plantation_round_trip(db):
     assert rainfall["records"] == RAINFALL["records"]
     assert rainfall["sap_actual_cutoff"] == "2026-10-15"
     assert rainfall["companies"] == {"CR": ["3A"], "TH": ["3A"]}
-    assert repository.plantation_signature() == str(run_id)
+    assert repository.plantation_signature() != before  # serving caches rebuild
 
     with transaction() as cursor:
         cursor.execute("SELECT environment, company_code, posting_date_raw, extra_fields "
@@ -210,18 +236,53 @@ def test_plantation_round_trip(db):
 
 def test_reload_replaces_plantation_data_and_retires_removed_estates(db):
     load(LOCATIONS)
-    second = load(LOCATIONS[:1])
+    first = repository.plantation_signature()
+    load(LOCATIONS[:1])
 
     assert [item["id"] for item in repository.plantations_document()["locations"]] == ["TH3A"]
     assert [item["id"] for item in repository.forecast_document()["forecasts"]] == ["TH3A"]
     assert repository.rainfall_document()["records"] == RAINFALL["records"]  # replaced, not appended
     assert scalar("SELECT count(*) FROM sap_rainfall_raw") == 2
     assert scalar("SELECT is_active FROM estate WHERE estate_id = 'CR3A'") is False
-    assert repository.plantation_signature() == str(second)
+    assert repository.plantation_signature() != first
+
+
+def test_prod_only_load_drops_dev_rows_and_stored_prod_rows_round_trip(db):
+    load(LOCATIONS)  # an older load that still had DEV rows
+    prod = [{"company_code": "CR", "estate": "3A", "plant": "P001", "posting_date": "10.15.2026",
+             "total_rainfall_measurement": "7", "remarks": "", "undocumented_field": "y"}]
+    with repository.tracked_run("plantation", "load") as run:
+        repository.load_plantation(run["run_id"], locations=LOCATIONS, forecast=forecast_for(LOCATIONS),
+                                   workbook_name="estates.xlsx", sap_rows={"prod": prod}, rainfall=RAINFALL)
+
+    assert scalar("SELECT count(*) FROM sap_rainfall_raw WHERE environment = 'dev'") == 0
+    assert repository.stored_sap_rows("prod") == prod
+    assert repository.stored_sap_rows("dev") == []
+
+
+def test_reload_writes_only_changed_sap_and_daily_rows(db):
+    first = load(LOCATIONS)
+    assert scalar("SELECT count(*) FROM plantation_rainfall_daily WHERE run_id = %s", (first,)) == 3
+
+    with repository.tracked_run("plantation", "load") as run:
+        same = repository.load_plantation(run["run_id"], locations=LOCATIONS, forecast=forecast_for(LOCATIONS),
+                                          workbook_name="estates.xlsx", sap_rows=SAP_ROWS, rainfall=RAINFALL)
+    assert same == {"sap_added": 0, "sap_removed": 0, "daily_added": 0, "daily_removed": 0}
+
+    revised = {"records": [RAINFALL["records"][0], RAINFALL["records"][1], ["TH", "3A", "", "Unspecified", "2026-10-15", 13.0]]}
+    prod = [{**SAP_ROWS["prod"][0], "total_rainfall_measurement": "5"}]
+    with repository.tracked_run("plantation", "load") as run:
+        changes = repository.load_plantation(run["run_id"], locations=LOCATIONS, forecast=forecast_for(LOCATIONS),
+                                             workbook_name="estates.xlsx", sap_rows={**SAP_ROWS, "prod": prod},
+                                             rainfall=revised)
+    assert changes == {"sap_added": 1, "sap_removed": 1, "daily_added": 1, "daily_removed": 1}
+    assert repository.rainfall_document()["records"] == revised["records"]
+    assert scalar("SELECT count(*) FROM plantation_rainfall_daily WHERE run_id = %s", (first,)) == 2  # untouched
 
 
 def test_failed_plantation_load_keeps_the_previous_data(db):
     load(LOCATIONS)
+    signature = repository.plantation_signature()
     broken = forecast_for(LOCATIONS)
     broken["forecasts"][0]["id"] = "XX9Z"  # unknown estate: foreign key violation
     with pytest.raises(psycopg2.errors.ForeignKeyViolation):
@@ -232,6 +293,7 @@ def test_failed_plantation_load_keeps_the_previous_data(db):
     assert repository.plantations_document()["source"] == "estates.xlsx"
     assert repository.rainfall_document()["records"] == RAINFALL["records"]
     assert scalar("SELECT count(*) FROM sap_rainfall_raw") == 2
+    assert repository.plantation_signature() == signature  # rolled back with the data
 
 
 # --- Serving cache --------------------------------------------------------

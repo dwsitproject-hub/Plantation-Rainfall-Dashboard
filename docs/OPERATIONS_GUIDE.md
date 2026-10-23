@@ -37,7 +37,7 @@ All commands below are run from the repository root.
    ```
 
    - `DATABASE_PASSWORD`: choose a strong password for the application database account.
-   - `SYNCERA_DEV_CLIENT_SECRET` / `SYNCERA_PROD_CLIENT_SECRET`: the Syncera client secrets.
+   - `SYNCERA_PROD_CLIENT_SECRET`: the Syncera PROD client secret.
    - `DASHBOARD_PUBLIC_URL`: the address users open, e.g. `http://192.168.1.82:8080/`.
 
    `.env` contains live secrets. Never commit or share it (it is in `.gitignore`).
@@ -124,12 +124,36 @@ python -m backend.run_dashboard
 This performs, in order:
 
 1. Applies any pending database schema changes.
-2. All Regions: historical rainfall and temperature (2000 to yesterday), historical
-   soil moisture (missing years only, from 2017), and the 14-day rainfall,
-   temperature and soil-moisture forecast. Each forecast run is archived.
-3. In-house plantations: SAP rainfall for every estate in `SAP_ESTATES` (DEV =
-   historical, PROD = current), the Open-Meteo 92-day recent actuals and 14-day
-   forecast for each estate in the workbook, then one transactional load into PostgreSQL.
+2. All Regions: historical rainfall and temperature, historical soil moisture, and
+   the 14-day rainfall, temperature and soil-moisture forecast. Each forecast run is
+   archived. History is incremental: only the days from `HISTORY_OVERLAP_DAYS`
+   (default 14) before the last stored day up to yesterday are downloaded, and only
+   new or changed values are written. The first run downloads everything (rainfall
+   and temperature from 2000, soil moisture from 2017); to rebuild a range, run
+   `python -m backend.all_regions.pull_historical_rainfall --start-date YYYY-MM-DD`.
+3. In-house plantations: SAP PROD rainfall for every estate in `SAP_ESTATES`, the
+   Open-Meteo 92-day recent actuals and 14-day forecast for each estate in the
+   workbook, then one transactional load into PostgreSQL. PROD returns about the
+   current month, so each pull is merged into the PROD rows stored by earlier
+   refreshes (for every estate and posting date in the new pull the new rows win;
+   older days are kept). The SAP history therefore starts with the first PROD
+   refresh and grows from there. The SAP DEV API is not used.
+
+   Syncera's API (guide v1.5, `docs/API Access Guide Rain Data (Prod) v.1.5.pdf`) has
+   two endpoints, one request per estate each:
+   - `rain-data-current` (the current month) is pulled on **every** refresh;
+   - `rain-data` (all previous months) is pulled only when due: when nothing is stored
+     yet, on the first refresh of a month (last month becomes final), every
+     `SAP_HISTORY_REFRESH_DAYS` (default 7) for late corrections, or with
+     `--full-history`. The log says `SAP previous months: pulling, because ...` or
+     `not due`.
+
+   For the same estate and day the current month wins over history, and history over
+   stored rows. Syncera allows about 10 requests a minute, so requests start every 6.7
+   seconds (`SAP_REQUESTS_PER_MINUTE`, default 9) with up to 4 waiting for an answer at
+   once: about 7 minutes for a normal refresh (59 requests) and about 13 minutes when
+   previous months are due as well (118). A refused request waits a minute and is sent
+   again. Only new or changed SAP and daily rainfall rows are written to the database.
 4. Stops a dashboard server previously started by this launcher, starts a new
    one and opens `DASHBOARD_PUBLIC_URL`.
 
@@ -145,7 +169,7 @@ Individual pipelines (normally not needed):
 
 ```powershell
 python -m backend.all_regions.update_all_regions_data
-python -m backend.plantation.update_all_rainfall_dashboard --workers 4
+python -m backend.plantation.update_all_rainfall_dashboard
 python -m backend.plantation.update_all_rainfall_dashboard --check
 ```
 
@@ -161,6 +185,25 @@ Then open `http://localhost:8080/`, or `DASHBOARD_PUBLIC_URL` from another
 computer on the network. Keep the server process running while the dashboard is in use.
 
 The server publishes only the `frontend/` folder. Health check: `GET /api/health`.
+
+### Page speed: caching
+
+Pages load in well under 2 seconds because nothing is computed while a visitor waits:
+
+- Database connections are pooled (`DATABASE_POOL_SIZE`, default 10) instead of opened per query.
+- Every data response is kept in memory, compressed, and versioned by the `data_version`
+  table, which each refresh bumps in the same transaction as its writes.
+- A background warmer pre-builds every page's data at startup and checks for new data
+  every 60 seconds. After a refresh, visitors see the previous data for up to about a
+  minute while the new version is built in the background, then the new data.
+- The All Regions refresh also stores the `/api/data` payload in `dashboard_cache`, so a
+  restarted backend serves it immediately.
+- Browsers keep CSS and JavaScript files for up to a year, so a page needs only its HTML
+  and data requests. When the frontend image is built, every CSS/JS link is stamped with
+  a hash of the file (`frontend/nginx/stamp_assets.py`); a changed file gets a new link,
+  so nobody has to bump `?v=` by hand and users never get stale code.
+
+Nothing needs to be cleared by hand; restarting the backend simply rebuilds the caches.
 
 ## Run the dashboard in Docker (separate frontend and backend)
 
@@ -195,8 +238,9 @@ which starts it) on the host while the containers run: both want port 8080. Use
 
 ### Staging and production on separate servers
 
-The complete staging runbook (servers, ports, Apsara RDS, DWS Hub SSO) is
-[DEPLOYMENT_STAGING.md](DEPLOYMENT_STAGING.md). In short:
+The complete runbooks (servers, ports, Apsara RDS, DWS Hub SSO) are
+[DEPLOYMENT_STAGING.md](DEPLOYMENT_STAGING.md) and
+[DEPLOYMENT_PRODUCTION.md](DEPLOYMENT_PRODUCTION.md). In short:
 
 1. **Backend server:** run the backend image with the production `.env`
    (database, Syncera secrets), `DASHBOARD_PORT=8000` and
@@ -228,8 +272,12 @@ The complete staging runbook (servers, ports, Apsara RDS, DWS Hub SSO) is
   forecasts). Each step is atomic, but steps that finished before a failure keep
   their new data.
 - Every step is recorded in the `rainfall.refresh_run` table with its status and error message.
-- **Early in a month** the refresh stops with `PROD SAP data is stale` until SAP
-  PROD contains a reading dated in the current month.
+- **When SAP PROD has no rain reading in the current month** (early in a month, or
+  if Syncera has not loaded it), the refresh still loads and logs
+  `WARNING: SAP PROD returned no rain readings for <month>`. Stored days are kept, so
+  the dashboard's latest SAP date just does not move forward, and the plantation
+  forecast is still updated. The run's message in `rainfall.refresh_run` ends with
+  `no current-month SAP data`. Raise it with Syncera if it lasts more than a day or two.
 - **Only one refresh runs at a time.** A second refresh started while one is
   running stops at once with `Another data refresh is already running` (exit
   code 75) and changes nothing. Wait for the first to finish. The lock is a

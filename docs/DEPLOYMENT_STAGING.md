@@ -271,7 +271,7 @@ Fill in:
 | --- | --- |
 | `DATABASE_PASSWORD` | the `rainfall_app` password from 4.3 |
 | `DATABASE_SSLMODE` | `require` if RDS SSL is on, otherwise `prefer` (SSL was **off** on the staging instance on 20 Oct 2026) |
-| `SYNCERA_DEV_CLIENT_SECRET`, `SYNCERA_PROD_CLIENT_SECRET` | from your local `.env` |
+| `SYNCERA_PROD_CLIENT_SECRET` | from your local `.env` (DEV is not used) |
 | `SSO_CLIENT_ID` | as registered in 3.2 (`plantation-rainfall-staging`) |
 | `SSO_CLIENT_SECRET` | empty (the Hub uses public clients with PKCE) |
 | `SSO_REDIRECT_URI` | `http://172.28.92.56:3070/api/sso/callback` (must match Hub exactly) |
@@ -301,7 +301,7 @@ curl -s http://172.28.92.57:5070/api/health ; echo
 ```
 
 Expected: `Database schema is up to date; 18 weather regions seeded.`, then
-`{"status":"ok","plantationVersion":"0"}`.
+`{"status":"ok","plantationVersion":"plantation-v0"}`.
 
 If health returns `{"status":"error","problem":...}`, the problem says which:
 *Database schema missing* (run the `init_db` line) or *Database unreachable*
@@ -433,14 +433,37 @@ should time out.
 crontab -e
 ```
 
-The backend server clock is **Asia/Shanghai (+08:00)**, one hour ahead of Jakarta. To
-refresh at 06:30 WIB, Monday–Saturday (adjust to when SAP data is posted), schedule
-07:30 server time:
+The refresh runs twice a day, Monday–Saturday:
+
+- **06:30 WIB** — the new Open-Meteo forecast is ready for the start of the working day.
+- **12:00 WIB** — picks up yesterday's SAP rain readings. Estates read the gauges in the
+  morning and enter them in SAP during the morning, so at 06:30 SAP usually has nothing
+  for yesterday yet and the dashboard's latest SAP date stays two days back (for example,
+  the 06:30 run on 21 Oct showed SAP data up to 19 Oct; the 20 Oct readings were in SAP
+  by early afternoon).
+
+The backend server clock is **Asia/Shanghai (+08:00)**, one hour ahead of Jakarta, so
+the cron lines use server time (07:30 and 13:00):
 
 ```
-# Plantation Rainfall staging refresh: 07:30 server time (Asia/Shanghai) = 06:30 WIB
+# Plantation Rainfall staging refresh (server time is Asia/Shanghai = WIB + 1 hour)
+# 07:30 server time = 06:30 WIB: new forecast for the working day
 30 7 * * 1-6 /opt/plantation-rainfall/deploy/staging/backend/refresh.sh
+# 13:00 server time = 12:00 WIB: yesterday's SAP rain readings
+0 13 * * 1-6 /opt/plantation-rainfall/deploy/staging/backend/refresh.sh
 ```
+
+Check the server's timezone first with `timedatectl | grep "Time zone"`; if it is not
+Asia/Shanghai, shift both lines by the difference from WIB.
+
+If a run is still going when the next one starts, the second one exits at once and
+changes nothing (its log shows "Refresh FAILED with exit code 75", meaning a refresh
+was already running). Pages keep serving the previous data
+while a refresh runs and switch to the new data within about a minute after it finishes.
+
+The SAP date shown on the dashboard is the latest day on which at least one estate
+recorded rain above 0 mm. SAP pre-fills every day to the end of the month with 0 mm,
+so a day with no reported rain anywhere is treated as not yet entered.
 
 The refresh itself runs on Jakarta time inside the container, so forecast run dates
 are WIB dates.
@@ -489,8 +512,9 @@ Hub users who are not registered see "has no access to this dashboard yet"
 ```bash
 # backend server
 cd /opt/plantation-rainfall && git pull
-cd deploy/staging/backend && docker compose up -d --build
-docker compose run --rm backend python -m backend.database.init_db   # schema changes are additive and idempotent
+cd deploy/staging/backend && docker compose build
+docker compose run --rm backend python -m backend.database.init_db   # schema first: additive and idempotent
+docker compose up -d
 
 # frontend server
 cd /opt/plantation-rainfall && git pull
@@ -528,8 +552,8 @@ security-group rules and (optionally) the RDS database and account.
 | Back on sign-in page: **token … rejected** | wrong `SSO_CLIENT_ID` (aud), issuer mismatch, server clock | check client id; `timedatectl` (NTP on); Hub `issuer` |
 | **has no access to this dashboard yet** | Hub user not registered | register their Hub email (9), or set `SSO_AUTO_PROVISION_ROLE` |
 | **sign-in link has expired or was already used** | a second unknown sign-in within 2 minutes (back button, > 10 minutes at the Hub). A first one, e.g. opening the app from the DWS Hub tile, restarts the sign-in automatically (audit: `sso_launch_restarted`) | click **Sign in with DWS Hub** again; if every Hub tile launch ends here, collect `docker logs plantation-rainfall-frontend-staging 2>&1 \| grep /api/sso` on the FE server |
-| Refresh fails: `PROD SAP data is stale` | no PROD reading this month yet (early month) | expected business rule; retry later |
-| Refresh fails: HTTP 429 after retries | Syncera rate limit | rerun later, or set `SAP_WORKERS=2` in `.env.staging` |
+| Refresh log shows `WARNING: SAP PROD returned no rain readings for <month>` | SAP PROD has no current-month data yet (early month, or Syncera has not loaded it) | the refresh still loads (forecast updated, SAP date stays); ask Syncera if it lasts more than a day or two |
+| Refresh fails: HTTP 429 after retries | Syncera rate limit lowered | set a lower `SAP_REQUESTS_PER_MINUTE` (e.g. `8`) in `.env.staging` |
 | Audit shows `172.x` Docker addresses | `TRUST_PROXY_HEADERS` not applied | compose sets it; check `docker compose config` |
 
 Logs: `docker compose logs -f` in the respective `deploy/staging/*` folder.
