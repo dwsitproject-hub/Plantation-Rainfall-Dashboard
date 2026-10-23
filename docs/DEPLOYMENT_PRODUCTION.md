@@ -179,6 +179,12 @@ the cron lines in step 8 depend on it.
 
 > Ports seen in `docker ps` on 23 Oct 2026: 3000, 4000, 4001, 5000, 5001, 5003, 5010,
 > 5050, 5434, 8001, 8091, 13000, and 5433 on localhost. **5070 is not used.**
+>
+> Checked 23 Oct 2026 (host `ECS-DB`): 5070 free on the host and in Docker, Docker 29.1.3,
+> Compose v2.31.0, Open-Meteo 200 (forecast and archive), Syncera PROD 405, Hub discovery
+> OK (issuer `https://dwshub.kpndomain.com`), `hub via 172.28.80.50 200`, the server DNS
+> already resolves `dwshub.kpndomain.com` to `172.28.80.50`, RDS port open. The server
+> clock is **Asia/Shanghai (+08:00)**, so step 8 uses the 07:30 / 13:00 cron lines.
 
 ---
 
