@@ -1,6 +1,8 @@
 """Download native ECMWF IFS 28-100 cm historical soil moisture.
 
-Only calendar years that are incomplete in the database are downloaded again.
+Incremental: in each calendar year that is incomplete in the database, only the days
+from HISTORY_OVERLAP_DAYS before the first missing day are downloaded and upserted
+(new or changed values only).
 """
 
 from __future__ import annotations
@@ -19,6 +21,17 @@ from backend.database import repository
 ARCHIVE_URL = config.OPEN_METEO_ARCHIVE_URL
 MODEL = "ecmwf_ifs"
 EARLIEST_IFS_DATE = date(2017, 1, 1)
+
+
+def first_missing_day(keys: set, start: date, end: date) -> date:
+    """First day in start..end for which some region has no stored value."""
+    per_day: dict[str, int] = {}
+    for _, _, day in keys:
+        per_day[day] = per_day.get(day, 0) + 1
+    day = start
+    while day <= end and per_day.get(day.isoformat(), 0) >= len(REGIONS):
+        day += timedelta(days=1)
+    return day
 
 
 def main() -> None:
@@ -47,10 +60,12 @@ def main() -> None:
             expected = ((chunk_end - chunk_start).days + 1) * len(REGIONS)
             present = sum(chunk_start.isoformat() <= key[2] <= chunk_end.isoformat() for key in keys)
             if present != expected:
+                fetch_start = max(chunk_start, first_missing_day(keys, chunk_start, chunk_end)
+                                  - timedelta(days=config.HISTORY_OVERLAP_DAYS))
                 payload = fetch_json(ARCHIVE_URL, {
                     "latitude": ",".join(str(r[2]) for r in REGIONS),
                     "longitude": ",".join(str(r[3]) for r in REGIONS),
-                    "start_date": chunk_start.isoformat(), "end_date": chunk_end.isoformat(),
+                    "start_date": fetch_start.isoformat(), "end_date": chunk_end.isoformat(),
                     "hourly": SOIL_VARIABLE, "models": MODEL, "timezone": "auto",
                 })
                 chunk_rows = native_soil_rows(
@@ -58,10 +73,10 @@ def main() -> None:
                     "Open-Meteo Historical Weather API / ECMWF IFS",
                     SOIL_METHOD,
                 )
-                written += repository.replace_weather(
-                    SOIL_METRIC, "historical_actual", chunk_rows,
-                    date_from=chunk_start.isoformat(), date_to=chunk_end.isoformat())
-                print(f"Stored soil moisture {chunk_start} to {chunk_end} ({len(chunk_rows):,} rows)")
+                changed = repository.upsert_weather(SOIL_METRIC, "historical_actual", chunk_rows)
+                written += changed
+                print(f"Soil moisture {fetch_start} to {chunk_end}: {len(chunk_rows):,} rows downloaded, "
+                      f"{changed:,} new or changed")
                 time.sleep(1.5)
             chunk_start = chunk_end + timedelta(days=1)
         run["rows"] = written
