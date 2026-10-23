@@ -6,7 +6,7 @@ with SAP/Syncera rain-gauge readings from the in-house estates.
 
 - `backend/`: Python data pipelines, web server and PostgreSQL 18 database code
 - `frontend/`: dashboard pages
-- `docs/`: [Operations guide](docs/OPERATIONS_GUIDE.md), [Staging deployment](docs/DEPLOYMENT_STAGING.md), [README review](docs/README_REVIEW.md), PRD and Technical Design
+- `docs/`: [Operations guide](docs/OPERATIONS_GUIDE.md), [Staging deployment](docs/DEPLOYMENT_STAGING.md), [Production deployment](docs/DEPLOYMENT_PRODUCTION.md), [README review](docs/README_REVIEW.md), PRD and Technical Design
 - `deploy/staging/`: compose files and settings template for the staging frontend and backend servers
 
 Quick start (full steps are in the operations guide):
