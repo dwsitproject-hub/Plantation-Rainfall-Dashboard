@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Safely refresh SAP rainfall, the plantation Open-Meteo forecast and the in-house dashboard data.
 
-Rainfall comes from the Syncera PROD API only. PROD returns roughly the current
-month, so each pull is merged into the PROD rows stored by earlier refreshes:
-for every estate and posting date in the new pull the new rows win, and all other
-stored days are kept. The dashboard history therefore grows with every refresh.
+Rainfall comes from the Syncera PROD API only (guide v1.5): rain-data-current for
+the current month on every refresh, and rain-data (all previous months) only when it
+is due: nothing stored yet, the first refresh of a new month (last month is then
+final), or SAP_HISTORY_REFRESH_DAYS since the last history pull (late corrections).
+Each pull is merged into the PROD rows stored before: for every estate and posting
+date the current month wins over history, history wins over stored rows, and all
+other stored days are kept.
 
 Every download is staged in a temporary folder and validated first. Only then is
 everything loaded into PostgreSQL in one transaction, so a failed refresh never
@@ -19,7 +22,7 @@ import json
 import subprocess
 import sys
 import tempfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from backend import config
@@ -56,6 +59,18 @@ def merge_sap_rows(stored: list[dict], pulled: list[dict]) -> list[dict]:
     """Stored PROD rows plus a new pull; for each estate and posting date in the pull, the pull wins."""
     refreshed = {sap_day(row) for row in pulled}
     return [row for row in stored if sap_day(row) not in refreshed] + pulled
+
+
+def history_due(last_pull: datetime | None, now: datetime, refresh_days: int) -> str | None:
+    """Why previous months (rain-data) should be pulled this refresh, or None if not needed."""
+    if last_pull is None:
+        return "no SAP history has been pulled yet"
+    last_pull = last_pull.astimezone(now.tzinfo)
+    if (last_pull.year, last_pull.month) != (now.year, now.month):
+        return "a new month has started, so last month is now final"
+    if now - last_pull >= timedelta(days=refresh_days):
+        return f"the last history pull was {(now - last_pull).days} days ago"
+    return None
 
 
 def write_csv(rows: list[dict], path: Path) -> None:
@@ -131,6 +146,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--workbook", type=Path, default=config.ESTATE_WORKBOOK)
     parser.add_argument("--requests-per-minute", type=float, default=config.SAP_REQUESTS_PER_MINUTE)
+    parser.add_argument("--full-history", action="store_true",
+                        help="Also pull all previous months (rain-data), even if not due.")
     parser.add_argument("--check", action="store_true", help="Validate settings without downloading data.")
     return parser.parse_args()
 
@@ -158,9 +175,15 @@ def main() -> int:
             sap_dir.mkdir()
             data_dir.mkdir()
 
+            now = datetime.now().astimezone()
+            history_reason = "requested with --full-history" if args.full_history else history_due(
+                repository.last_succeeded("plantation", "sap_history"), now, config.SAP_HISTORY_REFRESH_DAYS)
+            print(f"\nSAP previous months: {'pulling, because ' + history_reason if history_reason else 'not due'}",
+                  flush=True)
             run_step("1/4 Pull SAP PROD rainfall for all plantations", [
                 sys.executable, "-m", "backend.plantation.pull_sap_rainfall_all_regions",
                 "--environment", "prod",
+                "--dataset", "all" if history_reason else "current",
                 "--requests-per-minute", str(args.requests_per_minute),
                 "--output-dir", str(sap_dir),
             ])
@@ -172,13 +195,19 @@ def main() -> int:
             if warning:
                 print(f"\n{warning}\n", flush=True)
 
-            # Keep the days PROD no longer returns (earlier months) from previous refreshes.
+            history = sap_dir / "SAP rainfall data history.csv"
+            history_rows = read_csv(history) if history_reason else []
+            if history_reason and not history_rows:
+                raise ValueError("SAP rain-data (previous months) returned no rows")
+
+            # Stored days not in this pull are kept; history wins over stored rows and
+            # the current month wins over history for the same estate and day.
             stored_rows = repository.stored_sap_rows("prod")
-            sap_rows = merge_sap_rows(stored_rows, read_csv(current))
+            sap_rows = merge_sap_rows(merge_sap_rows(stored_rows, history_rows), read_csv(current))
             all_prod = sap_dir / "SAP rainfall data prod (stored and new).csv"
             write_csv(sap_rows, all_prod)
-            print(f"SAP PROD rows: {current_rows:,} pulled, {len(stored_rows):,} stored before, "
-                  f"{len(sap_rows):,} after merging", flush=True)
+            print(f"SAP PROD rows: {current_rows:,} current month and {len(history_rows):,} previous months "
+                  f"pulled, {len(stored_rows):,} stored before, {len(sap_rows):,} after merging", flush=True)
 
             run_step("2/4 Pull Open-Meteo forecast and rebuild plantation locations", [
                 sys.executable, "-m", "backend.plantation.update_location_forecast",
@@ -211,13 +240,18 @@ def main() -> int:
                 )
                 run["rows"] = rainfall_records
                 run["sap_actual_cutoff"] = rainfall["sap_actual_cutoff"]
-                run["message"] = (f"SAP prod {current_rows} rows pulled, {len(sap_rows)} stored "
+                run["message"] = (f"SAP prod {current_rows} current + {len(history_rows)} history rows pulled, "
+                                  f"{len(sap_rows)} stored "
                                   f"(+{changes['sap_added']} / -{changes['sap_removed']}); daily rainfall "
                                   f"+{changes['daily_added']} / -{changes['daily_removed']}; {forecasts} estates"
                                   + ("; no current-month SAP data" if warning else ""))
+            if history_reason:
+                with repository.tracked_run("plantation", "sap_history") as run:
+                    run["rows"] = len(history_rows)
+                    run["message"] = f"Previous months pulled because {history_reason}"
 
         print("\nDashboard refresh completed successfully.")
-        print(f"SAP PROD rows pulled: {current_rows:,}")
+        print(f"SAP PROD rows pulled: {current_rows:,} current month, {len(history_rows):,} previous months")
         print(f"SAP PROD rows stored: {len(sap_rows):,} "
               f"({changes['sap_added']:,} new or changed, {changes['sap_removed']:,} removed)")
         print(f"Daily rainfall rows: {changes['daily_added']:,} new or changed, "

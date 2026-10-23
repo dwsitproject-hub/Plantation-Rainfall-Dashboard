@@ -121,6 +121,9 @@ PLANTATION_PAST_DAYS = _int("PLANTATION_PAST_DAYS", 92)
 # --- SAP / Syncera --------------------------------------------------------
 # Pace of Syncera requests (measured limit: 10 a minute; 9 leaves a margin).
 SAP_REQUESTS_PER_MINUTE = _float("SAP_REQUESTS_PER_MINUTE", 9)
+# Previous months (rain-data) are pulled again after this many days, and always on the
+# first refresh of a month; every refresh pulls the current month (rain-data-current).
+SAP_HISTORY_REFRESH_DAYS = _int("SAP_HISTORY_REFRESH_DAYS", 7)
 
 
 def syncera(environment: str) -> dict[str, str]:

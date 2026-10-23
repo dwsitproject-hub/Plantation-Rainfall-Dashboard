@@ -482,6 +482,16 @@ def load_plantation(run_id: int, *, locations: list[dict], forecast: dict, workb
     return changes
 
 
+def last_succeeded(pipeline: str, step: str) -> datetime | None:
+    """When the step last finished successfully (None if never)."""
+    with transaction() as cursor:
+        cursor.execute("""
+            SELECT max(finished_at) FROM refresh_run
+            WHERE pipeline = %s AND step = %s AND status = 'succeeded'
+        """, (pipeline, step))
+        return cursor.fetchone()[0]
+
+
 def stored_sap_rows(environment: str) -> list[dict]:
     """SAP rows kept from earlier pulls, shaped like the rows of a freshly pulled CSV."""
     columns = ", ".join("posting_date_raw" if column == "posting_date" else column for column in SAP_COLUMNS)

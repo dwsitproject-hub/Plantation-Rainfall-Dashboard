@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Pull rainfall for every company/estate pair in SAP_ESTATES into one combined CSV per environment.
+"""Pull rainfall for every company/estate pair in SAP_ESTATES into one combined CSV per dataset.
 
 The CSVs are staging files; update_all_rainfall_dashboard loads them into PostgreSQL.
+
+Syncera API guide v1.5 (docs/API Access Guide Rain Data (Prod) v.1.5.pdf) has two
+endpoints, each taking company_code (required) and estate:
+  rain-data-current  the current month          -> "SAP rainfall data current.csv"
+  rain-data          all previous months/years  -> "SAP rainfall data history.csv"
 
 Syncera allows about 10 requests a minute (measured 23 Oct 2026: the 11th call
 within a minute is refused with HTTP 429 and the block clears a minute after the
@@ -27,6 +32,10 @@ from backend import config
 from backend.plantation import pull_sap_rainfall as sap
 
 
+DATASETS = {  # name: (endpoint, staging file)
+    "current": ("rain-data-current", "SAP rainfall data current.csv"),
+    "history": ("rain-data", "SAP rainfall data history.csv"),
+}
 RATE_LIMIT_COOLDOWN_SECONDS = 60  # Syncera's limit window
 ATTEMPTS_PER_ESTATE = 3
 MAX_IN_FLIGHT = 4
@@ -54,9 +63,9 @@ class Pacer:
         self.next_start = self.clock()
 
 
-def fetch_one(environment: str, token: str, company_code: str, estate: str):
+def fetch_one(environment: str, token: str, endpoint: str, company_code: str, estate: str):
     base_url = config.syncera(environment)["base_url"]
-    url = f"{base_url}/rain-data?company_code={company_code}&estate={estate}"
+    url = f"{base_url}/{endpoint}?company_code={company_code}&estate={estate}"
     try:
         # One attempt: pacing and retries are decided by pull_environment.
         result = sap.request_json(
@@ -92,29 +101,33 @@ def is_transient(error: Exception) -> bool:
 
 
 def pull_environment(environment: str, requests_per_minute: float, *,
+                     endpoints: tuple[str, ...] = ("rain-data-current",),
                      cooldown_seconds: float = RATE_LIMIT_COOLDOWN_SECONDS,
                      max_in_flight: int = MAX_IN_FLIGHT,
                      clock: Callable[[], float] = time.monotonic,
                      sleep: Callable[[float], None] = time.sleep):
     pacer = Pacer(requests_per_minute, clock=clock, sleep=sleep)
     estates = config.sap_estates()
-    print(f"{environment}: {len(estates)} estates at {requests_per_minute:g} requests/minute "
-          f"(about {len(estates) / requests_per_minute:.0f} min)", flush=True)
+    calls = len(estates) * len(endpoints)
+    print(f"{environment}: {', '.join(endpoints)} for {len(estates)} estates = {calls} requests at "
+          f"{requests_per_minute:g}/minute (about {calls / requests_per_minute:.0f} min)", flush=True)
     pacer.wait()  # the login counts towards the limit too
     token = sap.authenticate(environment)
-    pending = deque((company, estate, 1) for company, estate in estates)
+    pending = deque((endpoint, company, estate, 1) for endpoint in endpoints for company, estate in estates)
     in_flight: dict = {}
-    combined, errors = [], []
+    combined: dict[str, list] = {endpoint: [] for endpoint in endpoints}
+    errors = []
 
     def handle(future) -> None:
         nonlocal token
-        company, estate, attempt, used_token = in_flight.pop(future)
+        endpoint, company, estate, attempt, used_token = in_flight.pop(future)
+        label = f"{endpoint} {company}/{estate}"
         try:
             rows = future.result()
         except sap.ApiError as exc:
             last = attempt == ATTEMPTS_PER_ESTATE
             if is_rate_limited(exc) and not last:
-                print(f"{environment}: {company}/{estate} - rate limited; waiting {cooldown_seconds:.0f}s", flush=True)
+                print(f"{environment}: {label} - rate limited; waiting {cooldown_seconds:.0f}s", flush=True)
                 pacer.pause(cooldown_seconds)
             elif is_expired_token(exc) and not last:
                 if used_token == token:  # renew once, not once per call that used the old login
@@ -122,63 +135,61 @@ def pull_environment(environment: str, requests_per_minute: float, *,
                     pacer.wait()
                     token = sap.authenticate(environment)
             elif is_transient(exc) and not last:
-                print(f"{environment}: {company}/{estate} - {exc}; retrying", flush=True)
+                print(f"{environment}: {label} - {exc}; retrying", flush=True)
             else:
-                errors.append(f"{company}/{estate}: {exc}")
-                print(f"{environment}: {company}/{estate} - ERROR: {exc}", file=sys.stderr, flush=True)
+                errors.append(f"{label}: {exc}")
+                print(f"{environment}: {label} - ERROR: {exc}", file=sys.stderr, flush=True)
                 return
-            pending.appendleft((company, estate, attempt + 1))
+            pending.appendleft((endpoint, company, estate, attempt + 1))
             return
-        combined.extend(rows)
-        print(f"{environment}: {company}/{estate} - {len(rows):,} rows", flush=True)
+        combined[endpoint].extend(rows)
+        print(f"{environment}: {label} - {len(rows):,} rows", flush=True)
 
     with ThreadPoolExecutor(max_workers=max(1, max_in_flight)) as pool:
         while pending or in_flight:
             if pending and len(in_flight) < max(1, max_in_flight):
                 pacer.wait()
-                company, estate, attempt = pending.popleft()
-                future = pool.submit(fetch_one, environment, token, company, estate)
-                in_flight[future] = (company, estate, attempt, token)
+                endpoint, company, estate, attempt = pending.popleft()
+                future = pool.submit(fetch_one, environment, token, endpoint, company, estate)
+                in_flight[future] = (endpoint, company, estate, attempt, token)
                 done = [item for item in in_flight if item.done()]
             else:
                 done, _ = wait(list(in_flight), return_when=FIRST_COMPLETED)
             for future in done:
                 handle(future)
-    combined.sort(key=lambda row: (
-        str(row.get("company_code", "")) if isinstance(row, dict) else "",
-        str(row.get("estate", "")) if isinstance(row, dict) else "",
-        str(row.get("posting-date", "")) if isinstance(row, dict) else "",
-    ))
+    for rows in combined.values():
+        rows.sort(key=lambda row: (
+            str(row.get("company_code", "")) if isinstance(row, dict) else "",
+            str(row.get("estate", "")) if isinstance(row, dict) else "",
+            str(row.get("posting-date", "")) if isinstance(row, dict) else "",
+        ))
     return combined, errors
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Pull all requested SAP rainfall regions.")
+    parser = argparse.ArgumentParser(description="Pull SAP rainfall for every estate in SAP_ESTATES.")
     parser.add_argument("--requests-per-minute", type=float, default=config.SAP_REQUESTS_PER_MINUTE,
                         help="Syncera's rate limit (default: SAP_REQUESTS_PER_MINUTE).")
-    # The dashboard uses PROD only; DEV is kept as an option for manual checks.
-    parser.add_argument("--environment", choices=("all", "dev", "prod"), default="prod")
+    parser.add_argument("--dataset", choices=("current", "history", "all"), default="current",
+                        help="current = this month (every refresh); history = previous months.")
+    parser.add_argument("--environment", choices=("dev", "prod"), default="prod")
     parser.add_argument("--output-dir", type=Path, default=config.WORK_DIR / "sap")
     args = parser.parse_args()
-    jobs = [
-        ("dev", "SAP rainfall data historical.csv"),
-        ("prod", "SAP rainfall data current.csv"),
-    ]
-    if args.environment != "all":
-        jobs = [job for job in jobs if job[0] == args.environment]
-    failures = []
-    for environment, filename in jobs:
-        try:
-            rows, errors = pull_environment(environment, args.requests_per_minute)
-            sap.write_csv(rows, args.output_dir / filename)
-            print(f"Saved {len(rows):,} rows to {args.output_dir / filename}")
-            failures.extend(f"{environment} {error}" for error in errors)
-        except Exception as exc:
-            failures.append(f"{environment}: {exc}")
-    if failures:
-        print("Completed with region errors:", file=sys.stderr)
-        for failure in failures:
-            print(f"- {failure}", file=sys.stderr)
+    names = list(DATASETS) if args.dataset == "all" else [args.dataset]
+    try:
+        rows_by_endpoint, errors = pull_environment(
+            args.environment, args.requests_per_minute, endpoints=tuple(DATASETS[name][0] for name in names))
+    except Exception as exc:
+        print(f"Pull failed: {exc}", file=sys.stderr)
+        return 1
+    for name in names:
+        endpoint, filename = DATASETS[name]
+        sap.write_csv(rows_by_endpoint[endpoint], args.output_dir / filename)
+        print(f"Saved {len(rows_by_endpoint[endpoint]):,} {name} rows to {args.output_dir / filename}")
+    if errors:
+        print("Completed with estate errors:", file=sys.stderr)
+        for error in errors:
+            print(f"- {error}", file=sys.stderr)
         return 1
     return 0
 

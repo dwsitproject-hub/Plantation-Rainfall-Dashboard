@@ -42,3 +42,26 @@ def test_no_current_month_data_gives_a_warning_not_a_stop():
     assert warning.startswith("WARNING: SAP PROD returned no rain readings for October 2026 (latest: 30 Sep 2026)")
     assert "Loading anyway" in warning
     assert "latest: none" in freshness_warning(None, date(2026, 10, 23))
+
+
+def test_previous_months_are_pulled_only_when_due():
+    from datetime import datetime, timedelta, timezone
+    from backend.plantation.update_all_rainfall_dashboard import history_due
+    wib = timezone(timedelta(hours=7))
+    now = datetime(2026, 10, 23, 12, 0, tzinfo=wib)
+    assert "no SAP history" in history_due(None, now, 7)
+    assert history_due(datetime(2026, 10, 20, 6, 30, tzinfo=wib), now, 7) is None
+    assert "8 days ago" in history_due(datetime(2026, 10, 15, 6, 30, tzinfo=wib), now, 7)
+    first_of_month = datetime(2026, 11, 1, 6, 30, tzinfo=wib)
+    assert "new month" in history_due(datetime(2026, 10, 31, 12, 0, tzinfo=wib), first_of_month, 7)
+    # Stored in UTC, compared in local time: 31 Oct 20:00 UTC is already 1 Nov in Jakarta.
+    assert history_due(datetime(2026, 10, 31, 20, 0, tzinfo=timezone.utc), first_of_month, 7) is None
+
+
+def test_current_month_wins_over_history_and_history_over_stored():
+    stored = [row("30.09.2026", "1"), row("01.08.2026", "2")]
+    history = [row("30.09.2026", "5")]                        # September is now final
+    current = [row("30.09.2026", "9"), row("01.10.2026", "3")]  # overlap: current wins
+    merged = merge_sap_rows(merge_sap_rows(stored, history), current)
+    assert sorted((r["posting_date"], r["total_rainfall_measurement"]) for r in merged) == [
+        ("01.08.2026", "2"), ("01.10.2026", "3"), ("30.09.2026", "9")]

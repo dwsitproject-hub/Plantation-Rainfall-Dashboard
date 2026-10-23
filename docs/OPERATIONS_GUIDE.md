@@ -139,12 +139,21 @@ This performs, in order:
    older days are kept). The SAP history therefore starts with the first PROD
    refresh and grows from there. The SAP DEV API is not used.
 
-   Syncera allows about 10 requests a minute and has no date filter, so every refresh
-   asks once per estate for that estate's full dataset, starting one request every
-   6.7 seconds (`SAP_REQUESTS_PER_MINUTE`, default 9) with up to 4 waiting for an
-   answer at once: about 7 minutes for 59 estates. A refused request waits a minute
-   and is sent again. Only new or changed SAP and daily rainfall rows
-   are written to the database.
+   Syncera's API (guide v1.5, `docs/API Access Guide Rain Data (Prod) v.1.5.pdf`) has
+   two endpoints, one request per estate each:
+   - `rain-data-current` (the current month) is pulled on **every** refresh;
+   - `rain-data` (all previous months) is pulled only when due: when nothing is stored
+     yet, on the first refresh of a month (last month becomes final), every
+     `SAP_HISTORY_REFRESH_DAYS` (default 7) for late corrections, or with
+     `--full-history`. The log says `SAP previous months: pulling, because ...` or
+     `not due`.
+
+   For the same estate and day the current month wins over history, and history over
+   stored rows. Syncera allows about 10 requests a minute, so requests start every 6.7
+   seconds (`SAP_REQUESTS_PER_MINUTE`, default 9) with up to 4 waiting for an answer at
+   once: about 7 minutes for a normal refresh (59 requests) and about 13 minutes when
+   previous months are due as well (118). A refused request waits a minute and is sent
+   again. Only new or changed SAP and daily rainfall rows are written to the database.
 4. Stops a dashboard server previously started by this launcher, starts a new
    one and opens `DASHBOARD_PUBLIC_URL`.
 

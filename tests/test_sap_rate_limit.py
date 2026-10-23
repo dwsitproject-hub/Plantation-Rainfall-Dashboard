@@ -25,7 +25,7 @@ def run_pull(monkeypatch, failures: dict[tuple[str, str], list[str]], per_minute
     logins, calls = [], []
     monkeypatch.setattr(sap, "authenticate", lambda environment: logins.append(fake.now) or f"token{len(logins)}")
 
-    def fake_fetch(environment, token, company, estate):
+    def fake_fetch(environment, token, endpoint, company, estate):
         calls.append((fake.now, company, estate, token))
         pending = failures.get((company, estate))
         if pending:
@@ -34,7 +34,7 @@ def run_pull(monkeypatch, failures: dict[tuple[str, str], list[str]], per_minute
 
     monkeypatch.setattr(pull, "fetch_one", fake_fetch)
     rows, errors = pull.pull_environment("prod", per_minute, max_in_flight=1, clock=fake.clock, sleep=fake.sleep)
-    return rows, errors, calls, logins
+    return rows["rain-data-current"], errors, calls, logins
 
 
 def test_requests_are_spaced_to_the_limit_including_the_login(monkeypatch):
@@ -56,7 +56,7 @@ def test_refused_call_waits_for_the_window_and_succeeds(monkeypatch):
 def test_estate_refused_on_every_attempt_is_reported_and_others_still_load(monkeypatch):
     refused = "HTTP 429 from https://example/rain-data: Rate limit exceeded"
     rows, errors, _, _ = run_pull(monkeypatch, {("GN", "3B"): [refused] * 5})
-    assert len(rows) == 2 and len(errors) == 1 and errors[0].startswith("GN/3B: HTTP 429")
+    assert len(rows) == 2 and len(errors) == 1 and errors[0].startswith("rain-data-current GN/3B: HTTP 429")
 
 
 def test_expired_login_is_renewed(monkeypatch):
@@ -67,7 +67,7 @@ def test_expired_login_is_renewed(monkeypatch):
 
 def test_other_errors_are_not_retried(monkeypatch):
     rows, errors, calls, _ = run_pull(monkeypatch, {("TH", "3A"): ["HTTP 400 from x: bad estate"]})
-    assert len(rows) == 2 and errors == ["TH/3A: HTTP 400 from x: bad estate"]
+    assert len(rows) == 2 and errors == ["rain-data-current TH/3A: HTTP 400 from x: bad estate"]
     assert sum(call[1] == "TH" for call in calls) == 1
 
 
@@ -76,12 +76,29 @@ def test_slow_answers_overlap_instead_of_holding_up_the_next_request(monkeypatch
     monkeypatch.setattr(pull.config, "sap_estates", lambda: estates)
     monkeypatch.setattr(sap, "authenticate", lambda environment: "token")
 
-    def slow_fetch(environment, token, company, estate):
+    def slow_fetch(environment, token, endpoint, company, estate):
         time.sleep(0.5)  # Syncera sometimes takes many seconds to answer
         return [{"company_code": company, "estate": estate}]
 
     monkeypatch.setattr(pull, "fetch_one", slow_fetch)
     started = time.monotonic()
     rows, errors = pull.pull_environment("prod", 600, max_in_flight=4)  # one start every 0.1 s
-    assert errors == [] and len(rows) == 6
+    assert errors == [] and len(rows["rain-data-current"]) == 6
     assert time.monotonic() - started < 1.6  # one after another would take 3 s
+
+
+def test_both_endpoints_share_one_paced_queue(monkeypatch):
+    monkeypatch.setattr(pull.config, "sap_estates", lambda: [("TH", "3A"), ("GN", "3B")])
+    monkeypatch.setattr(sap, "authenticate", lambda environment: "token")
+    fake, calls = FakeTime(), []
+
+    def fetch(environment, token, endpoint, company, estate):
+        calls.append((fake.now, endpoint, company))
+        return [{"company_code": company, "estate": estate, "endpoint": endpoint}]
+
+    monkeypatch.setattr(pull, "fetch_one", fetch)
+    rows, errors = pull.pull_environment("prod", 10, endpoints=("rain-data", "rain-data-current"),
+                                         max_in_flight=1, clock=fake.clock, sleep=fake.sleep)
+    assert errors == []
+    assert [len(rows["rain-data"]), len(rows["rain-data-current"])] == [2, 2]
+    assert [call[0] for call in calls] == [6.0, 12.0, 18.0, 24.0]
