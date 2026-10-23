@@ -79,7 +79,7 @@ def validate_csv(path: Path) -> int:
     return count
 
 
-def latest_actual_date(path: Path) -> date:
+def latest_actual_date(path: Path) -> date | None:
     latest = None
     with path.open(encoding="utf-8-sig", newline="") as stream:
         for row in csv.DictReader(stream):
@@ -97,9 +97,24 @@ def latest_actual_date(path: Path) -> date:
                 rainfall = 0
             if parsed is not None and parsed <= date.today() and rainfall > 0 and (latest is None or parsed > latest):
                 latest = parsed
-    if latest is None:
-        raise ValueError(f"{path.name} contains no actual date with portfolio rainfall above zero")
     return latest
+
+
+def freshness_warning(pulled_latest: date | None, today: date) -> str | None:
+    """A warning when the new pull has no rain reading in the current month.
+
+    The refresh still loads: days stored by earlier refreshes are kept (so the
+    dashboard's latest SAP date simply does not advance) and the plantation forecast
+    is updated. Stopping here would freeze the forecast as well.
+    """
+    current_month = today.replace(day=1)
+    if pulled_latest is not None and pulled_latest >= current_month:
+        return None
+    latest = f"{pulled_latest:%d %b %Y}" if pulled_latest else "none"
+    return (f"WARNING: SAP PROD returned no rain readings for {current_month:%B %Y} (latest: {latest}). "
+            "Loading anyway: rain days stored by earlier refreshes are kept, so the dashboard's latest "
+            "SAP date will not move forward until SAP PROD has current data again. "
+            "Check with the Syncera team if this lasts more than a day or two.")
 
 
 def validate_json(path: Path, key: str) -> int:
@@ -115,8 +130,7 @@ def parse_args() -> argparse.Namespace:
         description="Refresh SAP rainfall, the plantation Open-Meteo forecast, and the in-house dashboard."
     )
     parser.add_argument("--workbook", type=Path, default=config.ESTATE_WORKBOOK)
-    parser.add_argument("--workers", type=int, default=config.SAP_WORKERS)
-    parser.add_argument("--delay", type=float, default=config.SAP_REQUEST_DELAY_SECONDS)
+    parser.add_argument("--requests-per-minute", type=float, default=config.SAP_REQUESTS_PER_MINUTE)
     parser.add_argument("--check", action="store_true", help="Validate settings without downloading data.")
     return parser.parse_args()
 
@@ -147,20 +161,16 @@ def main() -> int:
             run_step("1/4 Pull SAP PROD rainfall for all plantations", [
                 sys.executable, "-m", "backend.plantation.pull_sap_rainfall_all_regions",
                 "--environment", "prod",
-                "--workers", str(max(1, args.workers)),
-                "--delay", str(max(0, args.delay)),
+                "--requests-per-minute", str(args.requests_per_minute),
                 "--output-dir", str(sap_dir),
             ])
 
             current = sap_dir / "SAP rainfall data current.csv"
             current_rows = validate_csv(current)
             current_latest = latest_actual_date(current)
-            current_month = date.today().replace(day=1)
-            if current_latest < current_month:
-                raise ValueError(
-                    f"PROD SAP data is stale: latest actual date is {current_latest:%d %b %Y}; "
-                    f"expected at least {current_month:%d %b %Y}."
-                )
+            warning = freshness_warning(current_latest, date.today())
+            if warning:
+                print(f"\n{warning}\n", flush=True)
 
             # Keep the days PROD no longer returns (earlier months) from previous refreshes.
             stored_rows = repository.stored_sap_rows("prod")
@@ -191,7 +201,7 @@ def main() -> int:
             print("\n[4/4 Load validated data into PostgreSQL]", flush=True)
             rainfall = json.loads((data_dir / "rainfall_daily.json").read_text(encoding="utf-8"))
             with repository.tracked_run("plantation", "load") as run:
-                repository.load_plantation(
+                changes = repository.load_plantation(
                     run["run_id"],
                     locations=json.loads((data_dir / "plantations.json").read_text(encoding="utf-8"))["locations"],
                     forecast=json.loads((data_dir / "forecast_14day.json").read_text(encoding="utf-8")),
@@ -201,13 +211,22 @@ def main() -> int:
                 )
                 run["rows"] = rainfall_records
                 run["sap_actual_cutoff"] = rainfall["sap_actual_cutoff"]
-                run["message"] = (f"SAP prod {current_rows} rows pulled, {len(sap_rows)} stored; "
-                                  f"{forecasts} estates")
+                run["message"] = (f"SAP prod {current_rows} rows pulled, {len(sap_rows)} stored "
+                                  f"(+{changes['sap_added']} / -{changes['sap_removed']}); daily rainfall "
+                                  f"+{changes['daily_added']} / -{changes['daily_removed']}; {forecasts} estates"
+                                  + ("; no current-month SAP data" if warning else ""))
 
         print("\nDashboard refresh completed successfully.")
         print(f"SAP PROD rows pulled: {current_rows:,}")
-        print(f"SAP PROD rows stored: {len(sap_rows):,}")
-        print(f"Latest PROD actual date: {current_latest:%d %b %Y}")
+        print(f"SAP PROD rows stored: {len(sap_rows):,} "
+              f"({changes['sap_added']:,} new or changed, {changes['sap_removed']:,} removed)")
+        print(f"Daily rainfall rows: {changes['daily_added']:,} new or changed, "
+              f"{changes['daily_removed']:,} removed")
+        print(f"Latest rain reading in this PROD pull: {current_latest:%d %b %Y}" if current_latest
+              else "This PROD pull had no rain readings")
+        print(f"Dashboard latest SAP date: {rainfall['sap_actual_cutoff']}")
+        if warning:
+            print(warning)
         print(f"Dashboard rainfall records: {rainfall_records:,}")
         print(f"Plantation forecasts: {forecasts:,}")
         print(f"Refresh the in-house dashboard at {config.DASHBOARD_PUBLIC_URL.rstrip('/')}/inhouse/")

@@ -1,5 +1,9 @@
 """Download historical daily rainfall and mean temperature for all regions.
 
+Incremental: only the days from HISTORY_OVERLAP_DAYS before the last stored day up
+to yesterday are downloaded and upserted (new or changed values only). The first
+run, or --start-date, downloads the full range from HISTORICAL_RAINFALL_START_DATE.
+
 The output label is ``historical_actual`` for convenient reporting. Open-Meteo's
 archive is reanalysis/modelled weather, however, and is not a rain-gauge record.
 """
@@ -25,8 +29,9 @@ ARCHIVE_URL = config.OPEN_METEO_ARCHIVE_URL
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Pull historical daily rainfall.")
-    parser.add_argument("--start-date", default=config.HISTORICAL_RAINFALL_START_DATE,
-                        help=f"YYYY-MM-DD (default: {config.HISTORICAL_RAINFALL_START_DATE})")
+    parser.add_argument("--start-date", default=None,
+                        help="YYYY-MM-DD (default: just before the last stored day; "
+                             f"{config.HISTORICAL_RAINFALL_START_DATE} when nothing is stored)")
     parser.add_argument(
         "--end-date",
         default=(date.today() - timedelta(days=1)).isoformat(),
@@ -35,9 +40,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def default_start() -> date:
+    full = date.fromisoformat(config.HISTORICAL_RAINFALL_START_DATE)
+    stored = [repository.latest_weather_date("rainfall_mm", "historical_actual", regions=len(REGIONS)),
+              repository.latest_weather_date("temperature_mean_c", "historical_actual",
+                                             regions=len(TEMPERATURE_REGIONS))]
+    if None in stored:
+        return full
+    return max(full, min(stored) - timedelta(days=config.HISTORY_OVERLAP_DAYS))
+
+
 def main() -> None:
     args = parse_args()
-    start_date = date.fromisoformat(args.start_date)
+    start_date = date.fromisoformat(args.start_date) if args.start_date else default_start()
     end_date = date.fromisoformat(args.end_date)
     if start_date > end_date:
         raise SystemExit("--start-date must be on or before --end-date")
@@ -70,15 +85,11 @@ def main() -> None:
         temperature_payload, "historical_actual", "Open-Meteo Historical Weather API"
     )
     with repository.tracked_run("all_regions", "historical_rainfall_temperature") as run:
-        rain_count = repository.replace_weather(
-            "rainfall_mm", "historical_actual", rows,
-            date_from=start_date.isoformat(), date_to=end_date.isoformat())
-        temperature_count = repository.replace_weather(
-            "temperature_mean_c", "historical_actual", temperature_rows,
-            date_from=start_date.isoformat(), date_to=end_date.isoformat())
+        rain_count = repository.upsert_weather("rainfall_mm", "historical_actual", rows)
+        temperature_count = repository.upsert_weather("temperature_mean_c", "historical_actual", temperature_rows)
         run["rows"] = rain_count + temperature_count
-    print(f"Stored {rain_count:,} historical rainfall rows ({start_date} to {end_date})")
-    print(f"Stored {temperature_count:,} historical temperature rows ({start_date} to {end_date})")
+    print(f"Downloaded {start_date} to {end_date}: {len(rows):,} rainfall and {len(temperature_rows):,} "
+          f"temperature rows; {rain_count:,} and {temperature_count:,} were new or changed")
 
 
 if __name__ == "__main__":

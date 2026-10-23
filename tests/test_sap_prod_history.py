@@ -32,3 +32,13 @@ def test_merged_rows_round_trip_through_csv(tmp_path):
     rows = [row("10.01.2026", "4"), {**row("10.02.2026", "1"), "remarks": "late entry"}]
     write_csv(rows, tmp_path / "prod.csv")
     assert read_csv(tmp_path / "prod.csv") == [{**rows[0], "remarks": ""}, rows[1]]
+
+
+def test_no_current_month_data_gives_a_warning_not_a_stop():
+    from datetime import date
+    from backend.plantation.update_all_rainfall_dashboard import freshness_warning
+    assert freshness_warning(date(2026, 10, 21), date(2026, 10, 23)) is None
+    warning = freshness_warning(date(2026, 9, 30), date(2026, 10, 23))
+    assert warning.startswith("WARNING: SAP PROD returned no rain readings for October 2026 (latest: 30 Sep 2026)")
+    assert "Loading anyway" in warning
+    assert "latest: none" in freshness_warning(None, date(2026, 10, 23))
