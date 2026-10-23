@@ -238,8 +238,9 @@ which starts it) on the host while the containers run: both want port 8080. Use
 
 ### Staging and production on separate servers
 
-The complete staging runbook (servers, ports, Apsara RDS, DWS Hub SSO) is
-[DEPLOYMENT_STAGING.md](DEPLOYMENT_STAGING.md). In short:
+The complete runbooks (servers, ports, Apsara RDS, DWS Hub SSO) are
+[DEPLOYMENT_STAGING.md](DEPLOYMENT_STAGING.md) and
+[DEPLOYMENT_PRODUCTION.md](DEPLOYMENT_PRODUCTION.md). In short:
 
 1. **Backend server:** run the backend image with the production `.env`
    (database, Syncera secrets), `DASHBOARD_PORT=8000` and
