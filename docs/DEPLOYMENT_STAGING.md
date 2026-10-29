@@ -553,7 +553,8 @@ security-group rules and (optionally) the RDS database and account.
 | **has no access to this dashboard yet** | Hub user not registered | register their Hub email (9), or set `SSO_AUTO_PROVISION_ROLE` |
 | **sign-in link has expired or was already used** | a second unknown sign-in within 2 minutes (back button, > 10 minutes at the Hub). A first one, e.g. opening the app from the DWS Hub tile, restarts the sign-in automatically (audit: `sso_launch_restarted`) | click **Sign in with DWS Hub** again; if every Hub tile launch ends here, collect `docker logs plantation-rainfall-frontend-staging 2>&1 \| grep /api/sso` on the FE server |
 | Refresh log shows `WARNING: SAP PROD returned no rain readings for <month>` | SAP PROD has no current-month data yet (early month, or Syncera has not loaded it) | the refresh still loads (forecast updated, SAP date stays); ask Syncera if it lasts more than a day or two |
-| Refresh fails: HTTP 429 after retries | Syncera rate limit lowered | set a lower `SAP_REQUESTS_PER_MINUTE` (e.g. `8`) in `.env.staging` |
+| Refresh fails: HTTP 429 after retries, or many `rate limited; waiting 60s` lines | Syncera rate limit lowered (about 6 a minute on 29 Oct 2026) | set a lower `SAP_REQUESTS_PER_MINUTE` (default 5, e.g. `4`) in `.env.staging` |
+| `docker ps` shows `plantation-rainfall-staging-be-backend-run-…` as **unhealthy** | older image: the temporary refresh container inherited the web health check | harmless (the refresh log says whether it worked); rebuild the image (11) and refresh containers report healthy |
 | Audit shows `172.x` Docker addresses | `TRUST_PROXY_HEADERS` not applied | compose sets it; check `docker compose config` |
 
 Logs: `docker compose logs -f` in the respective `deploy/staging/*` folder.

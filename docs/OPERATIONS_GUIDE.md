@@ -149,10 +149,11 @@ This performs, in order:
      `not due`.
 
    For the same estate and day the current month wins over history, and history over
-   stored rows. Syncera allows about 10 requests a minute, so requests start every 6.7
-   seconds (`SAP_REQUESTS_PER_MINUTE`, default 9) with up to 4 waiting for an answer at
-   once: about 7 minutes for a normal refresh (59 requests) and about 13 minutes when
-   previous months are due as well (118). A refused request waits a minute and is sent
+   stored rows. Syncera refuses more than about 6 requests a minute (29 Oct 2026), so
+   requests start every 12 seconds (`SAP_REQUESTS_PER_MINUTE`, default 5) with up to 4
+   waiting for an answer at once: about 12 minutes for a normal refresh (59 requests) and
+   about 24 minutes when previous months are due as well (118). A refused request waits a
+   minute and is sent
    again. Only new or changed SAP and daily rainfall rows are written to the database.
 4. Stops a dashboard server previously started by this launcher, starts a new
    one and opens `DASHBOARD_PUBLIC_URL`.

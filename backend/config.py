@@ -119,8 +119,9 @@ PLANTATION_FORECAST_DAYS = _int("PLANTATION_FORECAST_DAYS", 14)
 PLANTATION_PAST_DAYS = _int("PLANTATION_PAST_DAYS", 92)
 
 # --- SAP / Syncera --------------------------------------------------------
-# Pace of Syncera requests (measured limit: 10 a minute; 9 leaves a margin).
-SAP_REQUESTS_PER_MINUTE = _float("SAP_REQUESTS_PER_MINUTE", 9)
+# Pace of Syncera requests. Syncera allowed 10 a minute on 23 Oct 2026 but refused after
+# about 6 a minute by 29 Oct; 5 leaves a margin (a refused request costs a 1-minute wait).
+SAP_REQUESTS_PER_MINUTE = _float("SAP_REQUESTS_PER_MINUTE", 5)
 # Previous months (rain-data) are pulled again after this many days, and always on the
 # first refresh of a month; every refresh pulls the current month (rain-data-current).
 SAP_HISTORY_REFRESH_DAYS = _int("SAP_HISTORY_REFRESH_DAYS", 7)

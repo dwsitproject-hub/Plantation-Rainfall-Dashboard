@@ -31,7 +31,7 @@ differences are listed in section 0.
 ```
 
 Allow about **2 hours** in a change window: steps 1–4 prepare, steps 5–9 deploy
-(the first data refresh alone takes 25–40 minutes), step 10 verifies.
+(the first data refresh alone takes 30–45 minutes), step 10 verifies.
 
 ---
 
@@ -396,14 +396,14 @@ docker compose run --rm -v "$PWD/import:/app/import:ro" backend \
 Expected: `ok rainfall_forecast_snapshots.csv: <N> runs, …` (one run per refresh day
 on staging, plus the runs imported there). Keep the file until the verification in step 10 is done, then delete it.
 
-### 5.6 First data refresh (25–40 minutes)
+### 5.6 First data refresh (30–45 minutes)
 
 The database is empty, so the first refresh downloads everything once:
 
 - Open-Meteo history: rainfall and temperature since 2000, soil moisture since 2017
   (later refreshes only download the last two weeks);
 - SAP PROD: previous months (`rain-data`) **and** the current month (`rain-data-current`)
-  for 59 estates — 118 requests at Syncera's limit of about 10 a minute.
+  for 59 estates — 118 requests, paced at 5 a minute to stay under Syncera's limit.
 
 Run it in the background so a dropped SSH session does not stop it:
 
@@ -417,7 +417,7 @@ sleep 5; tail -f "$(ls -t logs/refresh-*.log | head -1)"     # Ctrl+C stops watc
 Expected in the log:
 
 - `SAP previous months: pulling, because no SAP history has been pulled yet`
-- `prod: rain-data-current, rain-data for 59 estates = 118 requests at 9/minute (about 13 min)`
+- `prod: rain-data-current, rain-data for 59 estates = 118 requests at 5/minute (about 24 min)`
 - a few `rate limited; waiting 60s` lines are normal (handled automatically)
 - `Dashboard latest SAP date: <yesterday or the day before>`
 - `All dashboard data was refreshed successfully.`
@@ -506,9 +506,9 @@ The refresh runs twice a day, Monday–Saturday:
 - **06:30 WIB** — the new Open-Meteo forecast is ready for the start of the working day.
 - **12:00 WIB** — picks up yesterday's SAP rain readings (estates enter them during the morning).
 
-A normal refresh takes about **7–8 minutes** (current month only: 59 SAP requests). On the
-first refresh of a month, and once a week, previous months are pulled again as well
-(about 15 minutes). Only one refresh runs at a time; a second one exits at once
+A normal refresh takes about **13 minutes** (current month only: 59 SAP requests at 5 a
+minute). On the first refresh of a month, and once a week, previous months are pulled
+again as well (about 25 minutes). Only one refresh runs at a time; a second one exits at once
 (`Refresh FAILED with exit code 75`) and changes nothing.
 
 **Cron uses the server clock.** Ubuntu's cron ignores `CRON_TZ` lines (on staging the
@@ -642,7 +642,8 @@ security-group rules and (optionally) the RDS database and account.
 | **has no access to this dashboard yet** | Hub user not registered | register their Hub email (9) |
 | **sign-in link has expired or was already used** | a second unknown sign-in within 2 minutes (back button, > 10 minutes at the Hub) | click **Sign in with DWS Hub** again; if every Hub tile launch ends here, collect `docker logs plantation-rainfall-frontend-production 2>&1 \| grep /api/sso` |
 | Refresh log shows `WARNING: SAP PROD returned no rain readings for <month>` | SAP PROD has no current-month data yet (early month, or Syncera has not loaded it) | the refresh still loads (forecast updated, SAP date stays); ask Syncera if it lasts more than a day or two |
-| Many `rate limited; waiting 60s` lines, or estates failing with HTTP 429 | Syncera's limit is lower than expected | set `SAP_REQUESTS_PER_MINUTE=8` in `.env.production` |
+| Many `rate limited; waiting 60s` lines, or estates failing with HTTP 429 | Syncera's limit is lower than expected | set a lower `SAP_REQUESTS_PER_MINUTE` (e.g. `4`) in `.env.production`, then `docker compose up -d` |
+| `docker ps` shows `plantation-rainfall-prod-be-backend-run-…` as **unhealthy** | a refresh started before release v1.0.1: its temporary container inherited the web health check | harmless (the refresh's own log says whether it worked); from v1.0.1 on, refresh containers report healthy |
 | Refresh runs at the wrong hour | cron uses the server clock (`CRON_TZ` is ignored) | 8: check `timedatectl`, adjust the hours |
 | Audit shows `172.x` Docker addresses | `TRUST_PROXY_HEADERS` not applied | compose sets it; check `docker compose config` |
 
