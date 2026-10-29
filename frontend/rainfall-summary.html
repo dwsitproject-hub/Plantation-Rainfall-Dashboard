@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>July–September rainfall summary · Plantation Weather Monitor</title>
+  <meta name="description" content="Current-year cumulative July to September rainfall by region compared with 2015.">
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260928-options">
+  <link rel="stylesheet" href="/css/rainfall_summary.css?v=20260928">
+  <link rel="stylesheet" href="/css/sidebar.css?v=20261028-collapse">
+</head>
+<body>
+  <header><div><p class="eyebrow">Operations intelligence</p><h1>July–September rainfall summary</h1></div><div class="header-meta"><span class="live-dot"></span><span id="coverage">Loading source data…</span></div></header>
+  <nav class="page-nav" aria-label="Dashboard pages"><a href="/">Dashboard</a><a href="/weekly-seasonality.html">All regions · weekly</a><a href="/monthly-seasonality.html">All regions · monthly</a><a href="/two-week-comparison.html">Historical comparison</a><a href="/rainfall-summary.html" aria-current="page">Jul–Sep summary</a><a href="/forecast-changes.html">Forecast changes</a></nav>
+  <main class="summary-main">
+    <section class="summary-intro">
+      <div><p class="eyebrow">Regional rainfall totals</p><p id="periodNote">Calculating current-year and 2015 cumulative rainfall…</p></div>
+      <div class="summary-key"><span><i class="actual-key"></i>Historical actual</span><span><i class="forecast-key"></i>Available forecast</span></div>
+    </section>
+    <section class="panel summary-table-panel">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Region</th><th id="currentHeading">Current Jul–Sep (mm)</th><th>2015 Jul–Sep (mm)</th><th>Change vs 2015</th></tr></thead>
+          <tbody id="summaryTable"></tbody>
+        </table>
+      </div>
+    </section>
+    <div id="error" class="error" hidden></div>
+  </main>
+  <footer>Data: Open-Meteo • Country totals are simple averages across the monitored regional locations</footer>
+  <script src="/js/sidebar.js?v=20261028-rainfall-overview"></script><script src="/js/rainfall_summary.js?v=20260928"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+# PRODUCTION - backend server 172.28.80.51 (Python API, sign-in, DWS Hub SSO, data refresh).
+#
+# Run from this folder:   docker compose up -d --build
+# Settings and secrets:   .env.production next to this file (copy .env.production.example).
+#
+# The port is published on the private address only, so it is reachable from the
+# frontend server (172.28.80.50) and not from any other interface.
+name: plantation-rainfall-prod-be
+
+services:
+  backend:
+    build:
+      context: ../../..
+      dockerfile: backend/Dockerfile
+    image: plantation-rainfall-backend:production
+    container_name: plantation-rainfall-backend-production
+    env_file: .env.production
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+      DASHBOARD_PORT: 8000
+      # Only the frontend server can reach this port (see the deployment guide, firewall step).
+      TRUST_PROXY_HEADERS: "true"
+    ports:
+      - "172.28.80.51:${BACKEND_HOST_PORT:-5070}:8000"
+    # The production Hub announces its endpoints as https://dwshub.kpndomain.com, served
+    # by the frontend server (172.28.80.50, port 443). Pin the name so the backend reaches
+    # the token endpoint and signing keys even if the server's DNS does not know it.
+    extra_hosts:
+      - "dwshub.kpndomain.com:${HUB_HOST_IP:-172.28.80.50}"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

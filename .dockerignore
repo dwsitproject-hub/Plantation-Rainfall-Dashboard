@@ -1,0 +1,12 @@
+.env
+.git
+.gitignore
+.claude
+data
+docs
+tests
+**/__pycache__
+**/*.pyc
+*.md
+*.bat
+frontend

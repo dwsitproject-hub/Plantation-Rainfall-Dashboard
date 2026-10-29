@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Seasonal and cumulative rainfall dashboard for plantation estates.">
+  <title>Plantation Rainfall Dashboard</title>
+  <link rel="stylesheet" href="css/styles.css?v=5">
+  <link rel="stylesheet" href="css/forecast.css?v=13">
+  <link rel="stylesheet" href="css/seasonality-page.css?v=2">
+  <link rel="stylesheet" href="css/overview.css?v=2">
+  <link rel="stylesheet" href="/css/sidebar.css?v=20261028-collapse">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Plantation operations</p>
+      <h1>Inhouse Plantation Rainfall</h1>
+    </div>
+    <div class="data-status"><span></span>Data through <strong id="dataThrough">—</strong></div>
+  </header>
+
+  <main>
+    <section class="filters" aria-label="Dashboard filters">
+      <label>Province / region<select id="regionFilter"></select></label>
+      <label>Company code<select id="companyFilter"></select></label>
+      <label>Estate code<select id="estateFilter"></select></label>
+      <label class="year-filter">Year<select id="yearFilter"></select></label>
+      <div class="filter-summary"><span>Showing</span><strong id="selectionLabel">All plantations</strong><small id="recordCount">—</small></div>
+    </section>
+
+    <section id="seasonalityPage" class="page">
+      <div class="page-heading forecast-heading">
+        <div><p class="eyebrow">Selected area comparison</p><h2>Plantation Rainfall Seasonality</h2><p class="forecast-copy">Compare selected plantation actuals and forecast with the matching Open-Meteo regional series.</p></div>
+        <div class="baseline-controls"><label>Start year<select id="seasonalityStartYear"></select></label><label>End year<select id="seasonalityEndYear"></select></label></div>
+      </div>
+      <div class="forecast-legend"><span><i class="legend-swatch band"></i>Historical min–max</span><span><i class="legend-swatch average"></i>Historical average</span><span><i class="legend-swatch actual"></i>SAP actual</span><span><i class="legend-swatch external-actual"></i>External actual gap fill</span><span><i class="legend-swatch forecast"></i>Open-Meteo forecast</span><span><i class="legend-swatch today"></i>Today</span></div>
+      <button id="seasonalityDrilldown" class="seasonality-drilldown" type="button" aria-expanded="false">
+        <span class="seasonality-notice"><strong id="seasonalityAreaName">All Regions</strong><small class="seasonality-action">View estate details <b aria-hidden="true">→</b></small></span>
+        <span class="seasonality-chevron" aria-hidden="true"></span>
+        <span id="seasonalityOverview" class="seasonality-overview"></span>
+      </button>
+      <section id="seasonalityEstateDetails" class="seasonality-estate-details" hidden>
+        <div class="seasonality-detail-toolbar">
+          <button id="seasonalityBack" class="seasonality-back" type="button">← Back to overview</button>
+        </div>
+        <div class="forecast-region-title"><h3>Estate seasonality</h3><span id="seasonalityEstateCount">—</span></div>
+        <div id="seasonalityEstateGrid" class="forecast-grid"></div>
+      </section>
+      <div id="seasonalityEmpty" class="empty" hidden>No plantations match the selected filters.</div>
+      <aside class="note"><strong>Method</strong> The overview compares the selected plantations' SAP actual plus Open-Meteo gap-fill and forecast against the aligned All Regions Open-Meteo series. The current week combines actual rainfall through the latest observation with forecast for the remaining days. Future forecast weeks appear only when all seven days are available. Open the overview to replace it with weekly seasonality for every matching estate.</aside>
+    </section>
+
+    <section id="overviewPage" class="page active">
+      <div class="page-heading">
+        <div><p class="eyebrow">Current conditions</p><h2>Rainfall overview</h2></div>
+        <p>A concise operational view of SAP coverage and recent rainfall for the selected plantations.</p>
+      </div>
+      <div class="overview-kpis"><article><small>Selected estates</small><strong id="overviewEstates">—</strong></article><article><small>Latest SAP date</small><strong id="overviewLatest">—</strong></article><article><small>Current week average</small><strong id="overviewCurrentWeek">—</strong></article><article><small>Previous week average</small><strong id="overviewPreviousWeek">—</strong></article></div>
+      <div class="overview-columns">
+        <article class="overview-table-card">
+          <div class="region-head"><h3>Regional rainfall cur week vs last week</h3><span id="overviewWeekCoverage">Average daily rainfall · mm/day</span></div>
+          <div class="table-scroll"><table class="overview-table overview-week-table" aria-label="Regional rainfall current week versus last week"><thead><tr><th scope="col">Province / region</th><th scope="col">Estates</th><th scope="col">Latest SAP date</th><th scope="col">Cur week</th><th scope="col">Last week</th></tr></thead><tbody id="overviewTableBody"></tbody></table></div>
+        </article>
+        <article class="overview-table-card">
+          <div class="region-head"><h3>Average Rainfall By Region</h3><span>Regional average daily rainfall</span></div>
+          <div class="overview-range-filters" role="group" aria-label="Rainfall date range">
+            <label>From date<input id="rainfallFrom" type="date" aria-describedby="regionalAverageError"></label>
+            <label>To date<input id="rainfallTo" type="date" aria-describedby="regionalAverageError"></label>
+          </div>
+          <p id="regionalAverageError" class="overview-range-error" role="alert" hidden></p>
+          <div class="table-scroll"><table class="overview-table overview-range-table" aria-label="Average daily rainfall by region for selected dates"><thead><tr><th scope="col">Province / region</th><th scope="col">Estates</th><th scope="col">Avg. rainfall<br>(mm/day)</th></tr></thead><tbody id="regionalAverageBody"></tbody></table></div>
+          <p id="regionalRangeSummary" class="overview-range-summary" aria-live="polite"></p>
+        </article>
+      </div>
+      <div id="historyEmpty" class="empty" hidden>No records match the selected filters.</div>
+      <aside class="note"><strong>Method</strong> SAP rainfall is averaged across reporting estates for each day, then across days with data. Zero rainfall counts; missing readings do not. Week-to-date is compared with the same elapsed weekdays last week.</aside>
+    </section>
+
+    <section id="cumulativePage" class="page">
+      <div class="page-heading cumulative-heading">
+        <div><p class="eyebrow">Rolling crop year</p><h2>One-year cumulative rainfall</h2></div>
+        <label class="month-filter">Start month<select id="monthFilter"></select></label>
+      </div>
+      <div class="cumulative-meta">
+        <span id="cumulativeScope">Overall plantation</span>
+        <span id="cumulativeWindow">—</span>
+      </div>
+      <article class="large-chart-card">
+        <svg id="cumulativeChart" role="img" aria-label="One-year cumulative rainfall chart"></svg>
+        <div id="cumulativeLegend" class="year-legend"></div>
+      </article>
+      <div id="cumulativeEmpty" class="empty" hidden>No records match the selected filters.</div>
+      <aside class="note"><strong>Method</strong> Each curve begins within the selected start month and accumulates daily rainfall for the following 12 months. Curves with no reading during that first month are excluded. Estate-level daily rainfall is averaged across measurement tools; the overall view averages across visible estates before accumulating.</aside>
+    </section>
+
+    <section id="forecastPage" class="page" hidden>
+      <div class="page-heading forecast-heading">
+        <div><p class="eyebrow">Open-Meteo · 14 days</p><h2>Actual + external forecast</h2><p class="forecast-copy" id="forecastCoverage">—</p></div>
+        <div class="baseline-controls"><label>Start year<select id="forecastStartYear"></select></label><label>End year<select id="forecastEndYear"></select></label></div>
+      </div>
+      <div class="forecast-legend"><span><i class="legend-swatch band"></i>Historical min–max</span><span><i class="legend-swatch average"></i>Historical average</span><span><i class="legend-swatch actual"></i>SAP actual</span><span><i class="legend-swatch external-actual"></i>External actual gap fill</span><span><i class="legend-swatch forecast"></i>14-day forecast</span><span><i class="legend-swatch today"></i>Today</span></div>
+      <section id="forecastOverall" class="forecast-overall"></section>
+      <div id="forecastSections"></div>
+      <div id="forecastEmpty" class="empty" hidden>No plantations match the selected filters.</div>
+      <aside class="note"><strong>Method</strong> Historical weekly rainfall uses complete Monday–Sunday weeks. SAP observations are used through each plantation’s latest available date. Missing days after that date and before today are filled with Open-Meteo recent archived model rainfall and shown as a solid yellow line. The next 14 days use the latest Open-Meteo forecast and are shown as a dashed yellow line. The current week combines observed days with forecast for remaining days when the full week is covered; later forecast weeks require all seven days.</aside>
+    </section>
+  </main>
+  <div id="chartTooltip" class="chart-tooltip" hidden></div>
+  <script src="/js/sidebar.js?v=20261028-rainfall-overview"></script>
+  <script src="js/rainfall_metrics.js?v=2"></script>
+  <script src="js/app.js?v=25"></script>
+</body>
+</html>

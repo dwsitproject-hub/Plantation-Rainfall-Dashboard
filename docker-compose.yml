@@ -1,0 +1,45 @@
+# Plantation Rainfall Dashboard - frontend and backend as separate containers.
+#
+#   docker compose up -d --build        start (http://localhost:8080/)
+#   docker compose logs -f              follow both logs
+#   docker compose down                 stop
+#
+# Browser -> frontend (nginx, port 8080) -> backend (Python API, internal port 8000)
+#         -> PostgreSQL on the host (DOCKER_DATABASE_HOST, default host.docker.internal).
+# Only the frontend is published; the backend is reachable only from the frontend.
+#
+# Data refresh (also possible from the host with python -m backend.update_dashboard_data):
+#   docker compose run --rm backend python -m backend.update_dashboard_data
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: plantation-rainfall-backend:latest
+    container_name: plantation-rainfall-backend
+    env_file: .env
+    environment:
+      # Inside a container "localhost" is the container itself; reach the host's PostgreSQL instead.
+      DATABASE_HOST: ${DOCKER_DATABASE_HOST:-host.docker.internal}
+      DASHBOARD_HOST: 0.0.0.0
+      DASHBOARD_PORT: 8000
+      # Only the frontend can reach the backend, so trust the visitor address it reports.
+      TRUST_PROXY_HEADERS: "true"
+    expose:
+      - "8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    image: plantation-rainfall-frontend:latest
+    container_name: plantation-rainfall-frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "${DASHBOARD_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

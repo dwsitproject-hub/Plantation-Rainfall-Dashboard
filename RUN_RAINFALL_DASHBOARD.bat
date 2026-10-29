@@ -1,4 +1,4 @@
 @echo off
 cd /d "%~dp0"
-python RUN_RAINFALL_DASHBOARD.py
+python -m backend.run_dashboard
 if errorlevel 1 pause

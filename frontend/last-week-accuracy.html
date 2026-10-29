@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Last week rainfall accuracy · Plantation Weather Monitor</title>
+  <meta name="description" content="Last completed week's actual cumulative rainfall compared with its start-of-week forecast.">
+  <link rel="stylesheet" href="/css/dashboard.css?v=20261005-accuracy">
+  <link rel="stylesheet" href="/css/rainfall_summary.css?v=20261005-accuracy">
+  <link rel="stylesheet" href="/css/sidebar.css?v=20261028-collapse">
+  <link rel="stylesheet" href="/css/last_week_accuracy.css?v=20261007b">
+</head>
+<body>
+  <header><div><p class="eyebrow">Rainfall intelligence</p><h1>Last week: actual vs forecast</h1></div><div class="header-meta"><span class="live-dot"></span><span id="coverage">Loading archived forecast…</span></div></header>
+  <main class="summary-main accuracy-main">
+    <section class="summary-intro"><div><p class="eyebrow">Forecast accuracy</p><p id="periodNote">Finding the last completed Monday–Sunday week…</p></div></section>
+    <div id="overallNote" class="accuracy-availability" hidden></div>
+    <div class="accuracy-grid">
+      <section class="panel summary-table-panel accuracy-table-panel" aria-label="Last week rainfall by region">
+        <div class="table-wrap"><table>
+          <thead><tr><th>Region</th><th>Actual (mm)</th><th>Forecast (mm)</th><th>Error %</th></tr></thead>
+          <tbody id="accuracyTable"></tbody>
+        </table></div>
+      </section>
+      <section class="panel accuracy-chart-panel" aria-label="Daily rainfall comparison">
+        <div class="accuracy-chart-head"><div><p class="eyebrow">Seven-day detail</p><h2 id="chartTitle">Actual vs forecast (mm/day)</h2></div><label><span>Region</span><select id="regionSelect"></select></label></div>
+        <div class="accuracy-legend"><span><i class="actual-line"></i>Actual</span><span><i class="forecast-line"></i>Forecast</span></div>
+        <div id="dailyChart" class="accuracy-chart" role="img" aria-label="Daily actual and forecast rainfall"></div>
+        <p id="chartNote" class="accuracy-chart-note"></p>
+      </section>
+    </div>
+    <p class="accuracy-note">Error % = (forecast − actual) ÷ actual × 100. Positive means the forecast was too wet; negative means it was too dry.</p>
+    <div id="error" class="error" hidden></div>
+  </main>
+  <footer>Data: Open-Meteo • Forecast is the latest archived run available on or before the start of the completed week</footer>
+  <script src="/js/sidebar.js?v=20261028-rainfall-overview"></script><script src="/js/last_week_accuracy.js?v=20261007b"></script>
+</body>
+</html>
