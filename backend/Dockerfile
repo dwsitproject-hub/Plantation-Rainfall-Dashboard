@@ -23,7 +23,8 @@ RUN useradd --create-home --uid 10001 dashboard && mkdir -p data/work && chown -
 USER dashboard
 
 EXPOSE 8000
+# Checks /api/health; one-off containers (refresh, init_db, ...) report healthy (backend/healthcheck.py).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health' % os.environ.get('DASHBOARD_PORT', '8000'), timeout=5)"
+    CMD ["python", "-m", "backend.healthcheck"]
 
 CMD ["python", "-m", "backend.dashboard_server"]

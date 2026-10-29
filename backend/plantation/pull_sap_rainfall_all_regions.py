@@ -8,11 +8,11 @@ endpoints, each taking company_code (required) and estate:
   rain-data-current  the current month          -> "SAP rainfall data current.csv"
   rain-data          all previous months/years  -> "SAP rainfall data history.csv"
 
-Syncera allows about 10 requests a minute (measured 23 Oct 2026: the 11th call
-within a minute is refused with HTTP 429 and the block clears a minute after the
-first). The API has no date filter and one call returns one estate, so every
+Syncera limits requests per minute (measured 23 Oct 2026: the 11th call within a
+minute was refused with HTTP 429 and the block cleared a minute after the first; by
+29 Oct the staging refresh was refused after about 6 a minute). The API has no date filter and one call returns one estate, so every
 refresh needs one call per estate. Calls are therefore started at an even pace
-(SAP_REQUESTS_PER_MINUTE, default 9 for a small margin) instead of in a burst that
+(SAP_REQUESTS_PER_MINUTE, default 5 for a margin) instead of in a burst that
 is refused and retried. Up to MAX_IN_FLIGHT calls may be waiting for an answer at
 once, so a slow answer (Syncera sometimes takes 20+ s) does not hold up the next
 start. A refused call waits for the window to clear and is sent again.
