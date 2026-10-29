@@ -1,0 +1,55 @@
+/* Keep the rainfall overview together on a laptop or desktop screen. */
+.overview-page .year-filter{display:none}
+body.with-sidebar.overview-page>header{min-height:68px;padding:10px 22px}
+.overview-page .topbar h1{font-size:28px;line-height:1.15}
+.overview-page main{padding:12px 22px}
+.overview-page .filters{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(170px,1.1fr);gap:12px;padding:10px 12px;box-shadow:none}
+.overview-page .filters select{margin-top:4px;padding:7px 24px 7px 9px;font-size:12px}
+.overview-page .filter-summary{padding-left:12px}
+.overview-page .filter-summary strong{font-size:14px;margin:2px 0}
+.overview-page .filter-summary small{font-size:10px}
+.overview-page #overviewPage>.page-heading{display:none}
+.overview-page .overview-kpis{gap:10px;margin:10px 0}
+.overview-page .overview-kpis article{padding:10px 12px;box-shadow:none}
+.overview-page .overview-kpis strong{font-size:21px;margin-top:3px;line-height:1.2}
+.overview-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:stretch}
+.overview-columns .overview-table-card{min-width:0;padding:12px;box-shadow:none}
+.overview-columns .region-head{display:block;margin-bottom:8px}
+.overview-columns h3{font-size:17px;line-height:1.2;margin:0 0 5px;color:#102a33}
+.overview-columns .region-head span{display:block;font-size:10px;line-height:1.35;color:#647880}
+.overview-columns .overview-table{min-width:0;table-layout:fixed}
+.overview-columns .overview-table th,.overview-columns .overview-table td{padding:7px 5px;line-height:1.25;font-size:11px;letter-spacing:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.overview-columns .overview-table th{font-size:9px;vertical-align:bottom}
+.overview-week-table th:first-child{width:29%}
+.overview-week-table th:nth-child(2){width:10%}
+.overview-week-table th:nth-child(3){width:23%}
+.overview-range-table th:first-child{width:52%}
+.overview-range-table th:nth-child(2){width:16%}
+.overview-columns .table-scroll{overflow:visible}
+.overview-range-filters{display:flex;gap:10px;margin:8px 0}
+.overview-range-filters label{flex:1;min-width:0;font-size:9px;color:#647880;text-transform:uppercase;letter-spacing:.07em;font-weight:700}
+.overview-range-filters input{display:block;width:100%;min-width:0;margin-top:3px;padding:5px 7px;border:1px solid #cfd3cf;border-radius:5px;background:#fff;color:#102a33;font:12px Calibri,"Segoe UI",Arial,sans-serif}
+.overview-range-error{color:#a03529;font-size:11px;margin:5px 0}
+.overview-range-summary{color:#647880;font-size:10px;line-height:1.3;margin:7px 0 0}
+.overview-page #overviewPage>.note{margin:10px 0 0;padding:8px 10px;font-size:10px;line-height:1.35}
+@media(min-width:1100px) and (max-height:760px){
+  .overview-columns .overview-table th,.overview-columns .overview-table td{padding-top:5px;padding-bottom:5px}
+  .overview-columns .overview-table-card{padding:10px}
+  .overview-page .overview-kpis article{padding:8px 10px}
+}
+@media(min-width:801px) and (max-width:1099px){
+  .overview-page main{padding:10px 14px}
+  .overview-page .filters{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .overview-page .filter-summary{grid-column:1/-1;border-left:0;padding-left:0}
+  .overview-columns{grid-template-columns:1fr}
+}
+@media(max-width:800px){
+  .overview-columns{grid-template-columns:1fr}
+  .overview-page main{padding:12px 14px}
+  .overview-page .filters{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+  .overview-page .filter-summary{grid-column:1/-1;border-left:0;padding-left:0}
+  .overview-page .overview-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .overview-page .overview-kpis strong{font-size:19px}
+  .overview-page .overview-table{min-width:0}
+}
+@media(max-width:480px){.overview-page .filters{grid-template-columns:1fr}.overview-page .overview-table th,.overview-page .overview-table td{font-size:10px}.overview-columns h3{font-size:16px}}
