@@ -15,7 +15,7 @@
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   const rainfallLinks = [
-    ['/', 'Weather overview'],
+    ['/', 'Rainfall overview'],
     ['/weekly-seasonality.html', 'Weekly seasonality'],
     ['/cumulative-rainfall.html', 'Cumulative rainfall'],
     ['/two-week-comparison.html', 'Historical comparison'],
@@ -28,8 +28,8 @@
     ['/temperature-historical-comparison.html', 'Historical comparison'],
   ];
   const inhouseLinks = [
+    ['/inhouse/?page=overview', 'Rainfall overview'],
     ['/inhouse/?page=seasonality', 'Plantation Rainfall Seasonality'],
-    ['/inhouse/?page=overview', 'Weather overview'],
     ['/inhouse/?page=cumulative', 'Cumulative rainfall'],
   ];
   const adminLinks = [['/admin/users.html', 'User management']];
