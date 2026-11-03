@@ -128,6 +128,7 @@
     });
 
     sidebar.querySelector('#signOut').addEventListener('click', async () => {
+      if (window.plantRainfallHubReset) window.plantRainfallHubReset();  // DWS Hub SDK: forget the user
       await nativeFetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' }, body: '{}' });
       location.href = '/login.html';
     });

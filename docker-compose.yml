@@ -15,6 +15,9 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        # Git commit for the DWS Hub SDK / Sentinel: APP_RELEASE=$(git rev-parse HEAD) docker compose build
+        APP_RELEASE: "${APP_RELEASE:-}"
     image: plantation-rainfall-backend:latest
     container_name: plantation-rainfall-backend
     env_file: .env

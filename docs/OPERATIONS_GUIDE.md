@@ -288,6 +288,85 @@ The complete runbooks (servers, ports, Apsara RDS, DWS Hub SSO) are
 Read the failed-step message, correct the connection, credential or API issue,
 and run the launcher again.
 
+## DWS Hub SDK and Sentinel (usage analytics, bug reports, AI support)
+
+Every page loads the **DWS Hub SDK** (`frontend/js/hub_sdk.js`, guide
+`D:\Initiative\2026\DWS Hub\SDK-INTEGRATION-GUIDE.md`). It sends to the Hub, per
+environment: page views (path only, never query strings), time in app, uncaught
+JavaScript errors with breadcrumbs (recent pages, API calls as method/path/status,
+`console.error`), and bug reports from the floating **🐞 Report a bug** button. It sends
+no cookies, form contents or request bodies. The Hub's **Sentinel** agent analyses the
+bug reports and errors against this repository's code.
+
+How it is wired:
+
+- The loader asks the backend for its settings (`GET /api/hub-sdk/config`, public). It
+  loads the SDK only when `HUB_SDK_SCRIPT_URL` and `HUB_SDK_APP_KEY` are set, so each
+  environment uses its own Hub and key and the SDK is simply off without a key.
+- Signed-in users are identified with `DwsHub.identify`: Hub-linked accounts by their Hub
+  user id (OIDC `sub`) and email, local-only accounts by email ("Not a Hub account").
+  **Sign out** calls `DwsHub.reset()` first.
+- `data-release` is the git commit baked into the backend image at build time
+  (`APP_RELEASE=$(git rev-parse HEAD) docker compose build`), so Sentinel reads exactly the
+  code users ran. Without it Sentinel uses the branch configured in the Hub.
+- No Content-Security-Policy is sent by the dashboard, so nothing else is needed. If one is
+  added later, allow the Hub domain in `script-src` and `connect-src`.
+
+### Set up (once per environment)
+
+1. **Hub Admin → Applications → Plantation Rainfall Dashboard → SDK** (in the staging Hub
+   for staging, the production Hub for production): copy the app key (`dwsk_…`).
+2. Backend settings file (`.env.staging` / `.env.production`):
+
+   | Setting | Staging | Production |
+   | --- | --- | --- |
+   | `HUB_SDK_SCRIPT_URL` | `http://test-dwshub.kpndomain.com/api/sdk/v1/hub-sdk.js` | `https://dwshub.kpndomain.com/api/sdk/v1/hub-sdk.js` |
+   | `HUB_SDK_APP_KEY` | the staging key | the production key |
+
+3. Rebuild with the release and restart the backend:
+   `APP_RELEASE=$(git rev-parse HEAD) docker compose build && docker compose up -d`
+   (the frontend needs a rebuild too, for the new `hub_sdk.js`).
+4. **Allowed origins:** the Hub accepts data only from the app's registered addresses. The
+   OIDC redirect URIs already cover `http://172.28.92.56:3070` (staging) and
+   `http://172.28.80.50:3070` (production). For a local run add `http://localhost:8080`
+   under **SDK → Allowed origins** (and use the staging key).
+5. Check: open the dashboard, click around; **SDK** in Hub Admin shows **Receiving data**
+   within a minute, and **Admin → Analytic → Plantation Rainfall Dashboard** lists users,
+   pages, time, errors and bug reports. If nothing arrives, open the browser console:
+   `403 origin_not_allowed` means the page's address is not an allowed origin (step 4),
+   `403 invalid_key` means the key is wrong or was rotated (copy the current one), and
+   `Mixed Content` means an HTTPS page is loading the HTTP staging Hub.
+
+### Sentinel settings (Hub Admin → Analytic → Plantation Rainfall Dashboard → Sentinel settings)
+
+| Field | Value |
+| --- | --- |
+| GitHub repository | `dwsitproject-hub/Plantation-Rainfall-Dashboard` |
+| Branch | staging Hub: `restructure/production-layout`; production Hub: `main` (used only when a report has no release) |
+| Application folder | empty (frontend in `frontend/`, backend in `backend/`) |
+| Analyse automatically | ✓ |
+
+Then **Test repository access**: the Hub's read-only GitHub token must include this
+repository (fine-grained token, *Contents: Read-only*; an organisation owner adds the
+repository to the token).
+
+Suggested **Notes for Sentinel**:
+
+> Plantation Rainfall Dashboard. Frontend: static HTML + plain JavaScript (no build step,
+> not minified) under `frontend/`, served by nginx; `frontend/js/sidebar.js` is shared by all
+> pages; in-house plantation pages are `frontend/inhouse/` (`js/app.js`, `js/comparison.js`).
+> Backend: Python 3.12 stdlib HTTP server `backend/dashboard_server.py` (no framework) with
+> PostgreSQL 18 (schema `rainfall`) via `backend/database/repository.py`; sign-in in
+> `backend/auth/` (sessions, roles admin/plantation/regional, DWS Hub OIDC). Data APIs:
+> `/api/data` (All Regions payload), `/api/forecast-changes`, `/api/last-week-forecast-accuracy`,
+> `/api/cumulative-rainfall`, `/inhouse/data/*.json`; responses are cached in memory and
+> rebuilt when `data_version` changes. Data is refreshed by cron twice a day
+> (`backend/update_dashboard_data.py`): Open-Meteo history and forecast, and SAP rainfall from
+> Syncera PROD (`rain-data-current` every run, `rain-data` weekly; rate limited to about 6
+> requests a minute). Normal: the latest SAP date is one or two days behind today; pages
+> answer in under 2 s. HTTP 401 on any API means the session expired (the page redirects to
+> sign-in); 403 means the role does not include that section.
+
 ## Automated tests
 
 ```powershell

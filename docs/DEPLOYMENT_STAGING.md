@@ -278,6 +278,7 @@ Fill in:
 | `SSO_DISCOVERY_URL` | `http://test-dwshub.kpndomain.com/api/sso/.well-known/openid-configuration` (already in the template) |
 | `SSO_AUTHORIZATION_URL` | empty, unless step 3.3 required it |
 | `SSO_AUTO_PROVISION_ROLE` | empty (recommended: only registered users get in) or `regional` |
+| `HUB_SDK_APP_KEY` | the app key from the **staging** Hub (Admin → Applications → SDK); empty = SDK off (see the operations guide, *DWS Hub SDK and Sentinel*) |
 
 Check that nothing is left unset:
 
@@ -293,7 +294,7 @@ harmless to run again.)
 
 ```bash
 cd /opt/plantation-rainfall/deploy/staging/backend
-docker compose build
+APP_RELEASE=$(git rev-parse HEAD) docker compose build     # release = git commit, for the Hub SDK / Sentinel
 docker compose run --rm backend python -m backend.database.init_db
 docker compose up -d
 docker compose ps                              # STATUS: Up (healthy) after ~20 s
@@ -512,7 +513,7 @@ Hub users who are not registered see "has no access to this dashboard yet"
 ```bash
 # backend server
 cd /opt/plantation-rainfall && git pull
-cd deploy/staging/backend && docker compose build
+cd deploy/staging/backend && APP_RELEASE=$(git rev-parse HEAD) docker compose build
 docker compose run --rm backend python -m backend.database.init_db   # schema first: additive and idempotent
 docker compose up -d
 

@@ -19,6 +19,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ backend/
 
+# Git commit of this build, reported to the DWS Hub SDK so Sentinel reads exactly this code:
+#   APP_RELEASE=$(git rev-parse HEAD) docker compose build
+ARG APP_RELEASE=
+ENV APP_RELEASE=${APP_RELEASE}
+
 RUN useradd --create-home --uid 10001 dashboard && mkdir -p data/work && chown -R dashboard /app/data
 USER dashboard
 
