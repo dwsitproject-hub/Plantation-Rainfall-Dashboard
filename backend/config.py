@@ -89,6 +89,14 @@ SSO_SCOPES = _get("SSO_SCOPES", "openid profile email")
 SSO_AUTO_PROVISION_ROLE = os.getenv("SSO_AUTO_PROVISION_ROLE", "").strip()
 
 
+# --- DWS Hub SDK (usage analytics, JS errors, bug reports -> Sentinel) -------
+# Each Hub environment has its own key (Hub Admin -> Applications -> SDK). Empty = off.
+HUB_SDK_SCRIPT_URL = os.getenv("HUB_SDK_SCRIPT_URL", "").strip()
+HUB_SDK_APP_KEY = os.getenv("HUB_SDK_APP_KEY", "").strip()
+# Git commit or tag of this build (set at image build time); Sentinel reads that code.
+APP_RELEASE = os.getenv("APP_RELEASE", "").strip()
+
+
 def sso() -> dict[str, str]:
     """Hub settings, read only when SSO is enabled."""
     return {

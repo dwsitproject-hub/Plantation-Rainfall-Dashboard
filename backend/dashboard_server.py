@@ -50,7 +50,9 @@ RESPONSES = ResponseCache()
 CACHE_WARM_SECONDS = 60
 
 PUBLIC_PATHS = {"/login.html", "/css/login.css", "/js/login.js", "/api/login", "/api/health", "/api/auth/check",
-                "/api/sso/config", "/api/sso/login", "/api/sso/callback"}
+                "/api/sso/config", "/api/sso/login", "/api/sso/callback",
+                # DWS Hub SDK: loaded on every page, the sign-in page included.
+                "/js/hub_sdk.js", "/api/hub-sdk/config"}
 ANY_SIGNED_IN = "signed_in"
 ALL_REGIONS_APIS = {"/api/cumulative-rainfall", "/api/forecast-changes", "/api/last-week-forecast-accuracy"}
 ADMIN_USER_PATH = re.compile(r"^/api/admin/users/(\d+)(/password)?$")
@@ -107,6 +109,23 @@ def required_sections(path: str) -> tuple[str, ...] | None:
     if path == "/" or (path.endswith(".html") and path.count("/") == 1):
         return ("all_regions",)
     return (ANY_SIGNED_IN,)  # shared CSS/JS, /api/me, /api/logout
+
+
+def hub_sdk_config(user: dict | None) -> dict:
+    """Settings for frontend/js/hub_sdk.js (DWS Hub SDK); the app key is publishable by design.
+
+    The signed-in user is reported with their Hub user id (OIDC sub) when the account is
+    linked to the Hub, otherwise by email only (shown as "Not a Hub account" in the Hub).
+    """
+    if not (config.HUB_SDK_SCRIPT_URL and config.HUB_SDK_APP_KEY):
+        return {"enabled": False}
+    identity = None
+    if user:
+        identity = {"email": user["email"]}
+        if user.get("sso_subject"):
+            identity["id"] = user["sso_subject"]
+    return {"enabled": True, "scriptUrl": config.HUB_SDK_SCRIPT_URL, "appKey": config.HUB_SDK_APP_KEY,
+            "release": config.APP_RELEASE or None, "user": identity}
 
 
 def allowed_for(user: dict, sections: tuple[str, ...]) -> bool:
@@ -333,6 +352,8 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/sso/config":
             return self.send_json(200, {"ssoEnabled": config.SSO_ENABLED, "ssoLabel": config.SSO_LABEL,
                                         "localLoginEnabled": config.LOCAL_LOGIN_ENABLED})
+        if path == "/api/hub-sdk/config":
+            return self.send_json(200, hub_sdk_config(user))
         if path == "/api/sso/login":
             return self.handle_sso_login(parse_qs(url.query))
         if path == "/api/sso/callback":

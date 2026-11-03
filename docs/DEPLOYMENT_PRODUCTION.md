@@ -335,6 +335,7 @@ Fill in:
 | `SSO_DISCOVERY_URL` | `https://dwshub.kpndomain.com/api/sso/.well-known/openid-configuration` (already in the template) |
 | `SSO_AUTHORIZATION_URL` | empty, unless step 3.3 required it |
 | `SSO_AUTO_PROVISION_ROLE` | empty (recommended: only registered users get in) |
+| `HUB_SDK_APP_KEY` | the app key from the **production** Hub (Admin → Applications → SDK); empty = SDK off (see the operations guide, *DWS Hub SDK and Sentinel*) |
 | `SESSION_COOKIE_SECURE` | `false` while users open the dashboard over `http://` (see section 13) |
 
 Check that nothing is left unset:
@@ -350,7 +351,7 @@ Option B in 4.3, bootstrap already created it; running `init_db` again is harmle
 
 ```bash
 cd /opt/plantation-rainfall/deploy/production/backend
-docker compose build
+APP_RELEASE=$(git rev-parse HEAD) docker compose build     # release = git commit, for the Hub SDK / Sentinel
 docker compose run --rm backend python -m backend.database.init_db
 docker compose up -d
 docker compose ps                              # STATUS: Up (healthy) after ~20 s
@@ -599,7 +600,7 @@ Hub users who are not registered see "has no access to this dashboard yet".
 ```bash
 # backend server 172.28.80.51
 cd /opt/plantation-rainfall && git fetch --tags && git checkout v1.0.1
-cd deploy/production/backend && docker compose build
+cd deploy/production/backend && APP_RELEASE=$(git rev-parse HEAD) docker compose build
 docker compose run --rm backend python -m backend.database.init_db   # schema first: additive and idempotent
 docker compose up -d
 

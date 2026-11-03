@@ -11,7 +11,7 @@
 
   const path = location.pathname === '/dashboard.html' ? '/' : location.pathname;
   const inhousePage = new URLSearchParams(location.search).get('page') || 'overview';
-  const activeKey = path.startsWith('/inhouse/') ? `/inhouse/?page=${inhousePage}` : path;
+  const activeKey = path === '/inhouse/comparison.html' ? path : path.startsWith('/inhouse/') ? `/inhouse/?page=${inhousePage}` : path;
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   const rainfallLinks = [
@@ -30,6 +30,7 @@
   const inhouseLinks = [
     ['/inhouse/?page=overview', 'Rainfall overview'],
     ['/inhouse/?page=seasonality', 'Plantation Rainfall Seasonality'],
+    ['/inhouse/comparison.html', 'SAP vs Open-Meteo'],
     ['/inhouse/?page=cumulative', 'Cumulative rainfall'],
   ];
   const adminLinks = [['/admin/users.html', 'User management']];
@@ -127,6 +128,7 @@
     });
 
     sidebar.querySelector('#signOut').addEventListener('click', async () => {
+      if (window.plantRainfallHubReset) window.plantRainfallHubReset();  // DWS Hub SDK: forget the user
       await nativeFetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' }, body: '{}' });
       location.href = '/login.html';
     });
