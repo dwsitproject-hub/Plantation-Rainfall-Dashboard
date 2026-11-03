@@ -7,16 +7,19 @@ differences are listed in section 0.
 
 | | |
 | --- | --- |
-| Frontend server | `172.28.80.50` — nginx container, host port **3070** |
+| Frontend server | `172.28.80.50` — nginx container on **127.0.0.1:3070**, published through the server's own nginx (port 80) |
 | Backend server | `172.28.80.51` — Python container, host port **5070** (private address only) |
 | Database | Apsara RDS for PostgreSQL `pgm-d9jn3khh0b3907w4.pgsql.ap-southeast-5.rds.aliyuncs.com:5432` |
 | DWS Hub (production) | `https://dwshub.kpndomain.com` (issuer and all OIDC endpoints; resolves to `172.28.80.50`, HTTPS with a Let's Encrypt certificate) |
-| Users open | **http://172.28.80.50:3070/** |
+| Users open | **http://plantation-rainfall.kpndomain.com/** (DNS → `172.28.80.50`) |
 | Install folder (both servers) | `/opt/plantation-rainfall` |
 | Code | GitHub `dwsitproject-hub/Plantation-Rainfall-Dashboard`, a **release tag on `main`** (e.g. `v1.0.0`) |
 
 ```
- Browser ──► FE 172.28.80.50:3070  (nginx: pages, /api proxy, page-access check)
+ Browser ──► http://plantation-rainfall.kpndomain.com  (server nginx on 172.28.80.50, port 80)
+                   │  127.0.0.1:3070 (loopback only)
+                   ▼
+            FE container  (nginx: pages, /api proxy, page-access check)
                    │  http://172.28.80.51:5070  (private network, FE only)
                    ▼
             BE 172.28.80.51:5070  (Python API, sessions, roles, data refresh)
@@ -50,7 +53,8 @@ New on the servers (nothing existing is changed):
 | | Staging | Production |
 | --- | --- | --- |
 | Servers | FE `172.28.92.56`, BE `172.28.92.57` | FE `172.28.80.50`, BE `172.28.80.51` |
-| Ports | FE 3070, BE 5070 | FE 3070, BE 5070 (both free, checked 23 Oct 2026) |
+| Ports | FE 3070, BE 5070 | FE 127.0.0.1:3070 behind the server's nginx (port 80), BE 5070 (both free, checked 23 Oct 2026) |
+| Users open | `http://172.28.92.56:3070/` | **`http://plantation-rainfall.kpndomain.com/`** |
 | RDS | `pgm-d9jx9o06qae8gf3h…` | `pgm-d9jn3khh0b3907w4…` |
 | DWS Hub | `http://test-dwshub.kpndomain.com` (HTTP) | **`https://dwshub.kpndomain.com` (HTTPS)** |
 | Hub client id | `plantation-rainfall-staging` | `plantation-rainfall` |
@@ -143,7 +147,16 @@ docker ps --format '{{.Names}}\t{{.Ports}}' | grep -E ':3070->' || echo "3070 fr
 
 docker --version && docker compose version     # Docker 20.10+ and Compose v2 required
 curl -s -o /dev/null -w '%{http_code}\n' http://172.28.80.51:4000/   # any code = BE server reachable
+
+# The server's own nginx serves ports 80/443 (it also fronts the DWS Hub); the dashboard gets a site there
+nginx -v                                         # nginx/1.24.0 (Ubuntu) on 3 Nov 2026
+ls /etc/nginx/sites-enabled/
+getent hosts plantation-rainfall.kpndomain.com   # 172.28.80.50
 ```
+
+> Checked 3 Nov 2026: `plantation-rainfall.kpndomain.com` resolves to `172.28.80.50`; until the
+> site in step 6.4 exists, the server's nginx answers that name with its default site
+> ("Cloud Agent Monitoring") and, on HTTPS, with a certificate for another name.
 
 > Ports seen in `docker ps` on 23 Oct 2026: 2001, 3001, 3020, 3042, 3080, 3100, 8000,
 > 8080, 8081, 8443, and 3040/8090 on localhost. **3070 is not used.** The DWS Hub itself
@@ -211,8 +224,12 @@ Compare with the values in section 0. What each value is used for:
 | App name | Plantation Rainfall Dashboard |
 | `sso_mode` | `oidc` |
 | `oauth_client_id` | `plantation-rainfall` |
-| `oidc_redirect_uris` | `http://172.28.80.50:3070/api/sso/callback` (exact, no trailing slash) |
-| App / launch URL (Hub tile) | `http://172.28.80.50:3070/api/sso/login` |
+| Target URL | `http://plantation-rainfall.kpndomain.com` |
+| `oidc_redirect_uris` | `http://plantation-rainfall.kpndomain.com/api/sso/callback` (exact, no trailing slash) |
+| App / launch URL (Hub tile) | `http://plantation-rainfall.kpndomain.com/api/sso/login` |
+
+The Target URL and redirect URI also make `http://plantation-rainfall.kpndomain.com` an allowed
+origin for the Hub SDK.
 
 The production Hub advertises `token_endpoint_auth_methods_supported: ["none"]`, so this
 is a public client with PKCE: leave `SSO_CLIENT_SECRET` empty.
@@ -331,7 +348,8 @@ Fill in:
 | `SYNCERA_PROD_CLIENT_SECRET` | the Syncera PROD secret (1.3) |
 | `SSO_CLIENT_ID` | as registered in 3.2 (`plantation-rainfall`) |
 | `SSO_CLIENT_SECRET` | empty (public client with PKCE) |
-| `SSO_REDIRECT_URI` | `http://172.28.80.50:3070/api/sso/callback` (must match the Hub exactly) |
+| `SSO_REDIRECT_URI` | `http://plantation-rainfall.kpndomain.com/api/sso/callback` (must match the Hub exactly) |
+| `DASHBOARD_PUBLIC_URL` | `http://plantation-rainfall.kpndomain.com/` (already in the template) |
 | `SSO_DISCOVERY_URL` | `https://dwshub.kpndomain.com/api/sso/.well-known/openid-configuration` (already in the template) |
 | `SSO_AUTHORIZATION_URL` | empty, unless step 3.3 required it |
 | `SSO_AUTO_PROVISION_ROLE` | empty (recommended: only registered users get in) |
@@ -458,7 +476,8 @@ nano .env
 | Setting | Value |
 | --- | --- |
 | `BACKEND_URL` | `http://172.28.80.51:5070` (backend private address and port from step 5) |
-| `FRONTEND_HOST_PORT` | `3070` (must match the Hub redirect URI and `SSO_REDIRECT_URI`) |
+| `FRONTEND_HOST_PORT` | `127.0.0.1:3070` — loopback only: users reach the dashboard through the domain (6.4) |
+| `TRUSTED_PROXY_CIDR` | `0.0.0.0/0` — lets the server's nginx report each visitor's address (safe only with the loopback port above; without it every user would share one address in audit logs and sign-in throttling) |
 
 `docker compose` reads `.env` from this folder automatically; if a value is missing,
 startup stops with `Set BACKEND_URL in deploy/production/frontend/.env`. Check what
@@ -479,8 +498,26 @@ curl -s http://127.0.0.1:3070/api/health ; echo             # {"status":"ok",...
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' http://127.0.0.1:3070/   # 302 .../login.html
 ```
 
-The build stamps every CSS/JS link with a content hash (`Stamped 88 CSS/JS links with
+The build stamps every CSS/JS link with a content hash (`Stamped … CSS/JS links with
 content hashes.` in the build output), so browsers cache them safely.
+
+### 6.4 Publish the domain (the server's own nginx)
+
+The site file is in the repository: `deploy/production/frontend/host-nginx/plantation-rainfall.conf`
+(port 80, `server_name plantation-rainfall.kpndomain.com`, forwards to `127.0.0.1:3070`, passes
+the original `Host` and overwrites `X-Real-IP` with the visitor's address).
+
+```bash
+cp /opt/plantation-rainfall/deploy/production/frontend/host-nginx/plantation-rainfall.conf /etc/nginx/sites-available/
+ln -s /etc/nginx/sites-available/plantation-rainfall.conf /etc/nginx/sites-enabled/plantation-rainfall.conf
+nginx -t && systemctl reload nginx            # "syntax is ok" / "test is successful" first
+curl -s -H 'Host: plantation-rainfall.kpndomain.com' http://127.0.0.1/healthz              # ok
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'Host: plantation-rainfall.kpndomain.com' http://127.0.0.1/   # 302 …/login.html
+```
+
+`nginx -t` checks the whole configuration, including the other apps' sites, before the reload;
+if it reports an error, nothing is changed. Then open **http://plantation-rainfall.kpndomain.com/**
+from a PC: the dashboard's sign-in page (not "Cloud Agent Monitoring").
 
 ---
 
@@ -489,14 +526,16 @@ content hashes.` in the build output), so browsers cache them safely.
 | Server | Inbound rule | Source |
 | --- | --- | --- |
 | BE `172.28.80.51` | TCP **5070** | `172.28.80.50/32` **only** (the frontend server) |
-| FE `172.28.80.50` | TCP **3070** | the office network / VPN ranges from 1.3 |
+| FE `172.28.80.50` | TCP **80** (already open for the DWS Hub) | the office network / VPN ranges from 1.3 |
+| FE `172.28.80.50` | TCP 3070 | **none** (the container listens on 127.0.0.1 only; remove any old 3070 rule) |
 | RDS | 5432 (whitelist) | `172.28.80.51` |
 
 > The backend trusts the visitor address the frontend reports (`TRUST_PROXY_HEADERS=true`)
 > for audit logs and sign-in throttling, so port 5070 must not be reachable from anywhere else.
 
 Check from a PC that is **not** the frontend server: `http://172.28.80.51:5070/api/health`
-must time out, and `http://172.28.80.50:3070/` must open the sign-in page.
+must time out, `http://172.28.80.50:3070/` must not answer, and
+`http://plantation-rainfall.kpndomain.com/` must open the sign-in page.
 
 ---
 
@@ -557,7 +596,7 @@ on Jakarta time inside the container, so forecast run dates are WIB dates.
 Production starts with only the break-glass administrator (5.4); staging accounts are
 not copied.
 
-1. Sign in at http://172.28.80.50:3070/ with **Sign in with DWS Hub** (or the
+1. Sign in at http://plantation-rainfall.kpndomain.com/ with **Sign in with DWS Hub** (or the
    break-glass email + password).
 2. **Administration → User management → Register new user** for each person from 1.4:
    their **production DWS Hub email**, name and role (Administrator / Plantation user /
@@ -574,7 +613,7 @@ Hub users who are not registered see "has no access to this dashboard yet".
 | # | Check | Expected |
 | --- | --- | --- |
 | 1 | `docker ps` on both servers | both new containers `Up (healthy)`; **no other container restarted** (compare uptimes with before) |
-| 2 | Open http://172.28.80.50:3070/ | redirected to the sign-in page with the **Sign in with DWS Hub** button |
+| 2 | Open http://plantation-rainfall.kpndomain.com/ | redirected to the sign-in page with the **Sign in with DWS Hub** button |
 | 3 | Click **Sign in with DWS Hub** | production Hub sign-in (HTTPS), then back on the dashboard (first time: account linked) |
 | 4 | Launch from the DWS Hub tile | lands on the dashboard (the first launch may restart sign-in once; audit `sso_launch_restarted`) |
 | 5 | Sidebar | your name and role; sections match your role |
@@ -646,7 +685,10 @@ security-group rules and (optionally) the RDS database and account.
 | Many `rate limited; waiting 60s` lines, or estates failing with HTTP 429 | Syncera's limit is lower than expected | set a lower `SAP_REQUESTS_PER_MINUTE` (e.g. `4`) in `.env.production`, then `docker compose up -d` |
 | `docker ps` shows `plantation-rainfall-prod-be-backend-run-…` as **unhealthy** | a refresh started before release v1.0.1: its temporary container inherited the web health check | harmless (the refresh's own log says whether it worked); from v1.0.1 on, refresh containers report healthy |
 | Refresh runs at the wrong hour | cron uses the server clock (`CRON_TZ` is ignored) | 8: check `timedatectl`, adjust the hours |
-| Audit shows `172.x` Docker addresses | `TRUST_PROXY_HEADERS` not applied | compose sets it; check `docker compose config` |
+| Audit shows `172.x` / `192.168.x` Docker addresses for every user | the frontend does not trust the server's nginx | `TRUSTED_PROXY_CIDR=0.0.0.0/0` and `FRONTEND_HOST_PORT=127.0.0.1:3070` in `deploy/production/frontend/.env`, `docker compose up -d`; the backend needs `TRUST_PROXY_HEADERS` (compose sets it) |
+| The domain shows **Cloud Agent Monitoring** (or another app) | the dashboard site is not enabled in the server's nginx | 6.4: `ls /etc/nginx/sites-enabled/`, `server_name` spelled exactly, `nginx -t && systemctl reload nginx` |
+| The domain shows **502 Bad Gateway** (nginx/1.24.0 Ubuntu) | the frontend container is not listening on `127.0.0.1:3070` | `docker compose ps` in `deploy/production/frontend`; `curl http://127.0.0.1:3070/healthz` |
+| Sign-in fails with **Cross-site request refused** | the server's nginx does not pass the original `Host` | the site file must have `proxy_set_header Host $host;` |
 
 Logs: `docker compose logs -f` in the respective `deploy/production/*` folder.
 
@@ -654,16 +696,60 @@ Logs: `docker compose logs -f` in the respective `deploy/production/*` folder.
 
 ## 13. Recommended after go-live
 
-- **Serve the dashboard over HTTPS.** The Hub already runs HTTPS with a Let's Encrypt
-  certificate on `172.28.80.50`. Publishing the dashboard the same way (for example
-  `https://rainfall.kpndomain.com` through that HTTPS front end, proxying to
-  `127.0.0.1:3070`) protects passwords and session cookies on the network. Afterwards:
-  set `SESSION_COOKIE_SECURE=true`, `DASHBOARD_PUBLIC_URL` and `SSO_REDIRECT_URI` to the
-  HTTPS address, update the Hub registration (redirect URI and launch URL), and restrict
-  port 3070 to the front end only.
+- **Serve the dashboard over HTTPS.** The domain is served over plain HTTP for now. The
+  server's nginx already issues Let's Encrypt certificates for the Hub, so the same works for
+  the dashboard: `certbot --nginx -d plantation-rainfall.kpndomain.com` (adds an HTTPS server
+  block and an HTTP→HTTPS redirect to the site from 6.4). Afterwards set
+  `SESSION_COOKIE_SECURE=true` and change `DASHBOARD_PUBLIC_URL` and `SSO_REDIRECT_URI` to
+  `https://…`, update the Hub registration (Target URL, redirect URI, launch URL) and recreate
+  the backend. Until then, `https://plantation-rainfall.kpndomain.com` shows a certificate
+  warning for another name; tell users to use `http://`.
 - **Turn off password sign-in for normal users** once everyone uses the Hub: keep
   `LOCAL_LOGIN_ENABLED=true` only as long as the break-glass administrator needs it.
 - **Monitor** `http://172.28.80.51:5070/api/health` (from the FE server) and the newest
   `logs/refresh-*.log` with your existing monitoring.
 - **Rotate secrets** that have been shared in documents (the Syncera API guide PDF
   contains client secrets) and keep `.env.production` readable by root only (`chmod 600`).
+
+---
+
+## 14. Switching the running production to the domain (November 2026)
+
+Production was first deployed on `http://172.28.80.50:3070`. To move it to
+**http://plantation-rainfall.kpndomain.com** together with release `v1.0.1` (DWS Hub SDK,
+healthy refresh containers, SAP pace 5/minute, comparison page):
+
+1. **Release:** promote `SIT` → `UAT` → `main` (pull requests) and tag `v1.0.1` on `main` (1.1).
+2. **Hub Admin (production):** in the app registration set the Target URL, **add**
+   `http://plantation-rainfall.kpndomain.com/api/sso/callback` to `oidc_redirect_uris` (keep the
+   old IP entry until step 6 is verified, then remove it) and change the launch URL (3.2). Copy the
+   SDK key (Applications → SDK).
+3. **Backend server** (`172.28.80.51`):
+   ```bash
+   cd /opt/plantation-rainfall && git fetch --tags && git checkout v1.0.1
+   cd deploy/production/backend && nano .env.production
+   ```
+   Set `DASHBOARD_PUBLIC_URL=http://plantation-rainfall.kpndomain.com/`,
+   `SSO_REDIRECT_URI=http://plantation-rainfall.kpndomain.com/api/sso/callback`,
+   `HUB_SDK_SCRIPT_URL=https://dwshub.kpndomain.com/api/sdk/v1/hub-sdk.js`,
+   `HUB_SDK_APP_KEY=dwsk_…`, and `SAP_REQUESTS_PER_MINUTE=5` (or delete that line). Then:
+   ```bash
+   APP_RELEASE=$(git rev-parse HEAD) docker compose build
+   docker compose run --rm backend python -m backend.database.init_db
+   docker compose up -d
+   docker compose exec backend python -c "import os; print(os.environ['SSO_REDIRECT_URI'], 'sdk key set:', bool(os.environ.get('HUB_SDK_APP_KEY')))"
+   ```
+   Also fix the crontab path if still needed (`deploy/staging` → `deploy/production`, step 8).
+4. **Frontend server** (`172.28.80.50`):
+   ```bash
+   cd /opt/plantation-rainfall && git fetch --tags && git checkout v1.0.1
+   cd deploy/production/frontend && nano .env      # FRONTEND_HOST_PORT=127.0.0.1:3070, TRUSTED_PROXY_CIDR=0.0.0.0/0
+   docker compose up -d --build
+   curl -s http://127.0.0.1:3070/healthz            # ok
+   ```
+   Then install the site (6.4).
+5. **Security group:** remove the old inbound rule for TCP 3070; port 80 stays (7).
+6. **Verify** from a PC: http://plantation-rainfall.kpndomain.com/ → sign-in page → **Sign in with
+   DWS Hub** → dashboard; the 🐞 *Report a bug* button appears; Hub Admin → SDK shows *Receiving
+   data*; User management → Recent activity shows your real PC address. Then remove the old IP
+   redirect URI from the Hub registration.

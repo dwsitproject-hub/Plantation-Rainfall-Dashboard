@@ -16,6 +16,8 @@ RUN python /tmp/stamp_assets.py /site
 FROM nginx:1.27-alpine
 
 ENV BACKEND_URL=http://backend:8000
+# Address range of a front proxy allowed to report the visitor's IP (see nginx config).
+ENV TRUSTED_PROXY_CIDR=127.0.0.1/32
 
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
