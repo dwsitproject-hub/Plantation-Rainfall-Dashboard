@@ -89,6 +89,14 @@ SSO_SCOPES = _get("SSO_SCOPES", "openid profile email")
 SSO_AUTO_PROVISION_ROLE = os.getenv("SSO_AUTO_PROVISION_ROLE", "").strip()
 
 
+# --- DWS Hub SDK (usage analytics, JS errors, bug reports -> Sentinel) -------
+# Each Hub environment has its own key (Hub Admin -> Applications -> SDK). Empty = off.
+HUB_SDK_SCRIPT_URL = os.getenv("HUB_SDK_SCRIPT_URL", "").strip()
+HUB_SDK_APP_KEY = os.getenv("HUB_SDK_APP_KEY", "").strip()
+# Git commit or tag of this build (set at image build time); Sentinel reads that code.
+APP_RELEASE = os.getenv("APP_RELEASE", "").strip()
+
+
 def sso() -> dict[str, str]:
     """Hub settings, read only when SSO is enabled."""
     return {
@@ -119,8 +127,9 @@ PLANTATION_FORECAST_DAYS = _int("PLANTATION_FORECAST_DAYS", 14)
 PLANTATION_PAST_DAYS = _int("PLANTATION_PAST_DAYS", 92)
 
 # --- SAP / Syncera --------------------------------------------------------
-# Pace of Syncera requests (measured limit: 10 a minute; 9 leaves a margin).
-SAP_REQUESTS_PER_MINUTE = _float("SAP_REQUESTS_PER_MINUTE", 9)
+# Pace of Syncera requests. Syncera allowed 10 a minute on 23 Oct 2026 but refused after
+# about 6 a minute by 29 Oct; 5 leaves a margin (a refused request costs a 1-minute wait).
+SAP_REQUESTS_PER_MINUTE = _float("SAP_REQUESTS_PER_MINUTE", 5)
 # Previous months (rain-data) are pulled again after this many days, and always on the
 # first refresh of a month; every refresh pulls the current month (rain-data-current).
 SAP_HISTORY_REFRESH_DAYS = _int("SAP_HISTORY_REFRESH_DAYS", 7)
