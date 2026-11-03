@@ -328,7 +328,7 @@ How it is wired:
    (the frontend needs a rebuild too, for the new `hub_sdk.js`).
 4. **Allowed origins:** the Hub accepts data only from the app's registered addresses. The
    OIDC redirect URIs already cover `http://172.28.92.56:3070` (staging) and
-   `http://172.28.80.50:3070` (production). For a local run add `http://localhost:8080`
+   `http://plantation-rainfall.kpndomain.com` (production; set as the Target URL in the Hub registration). For a local run add `http://localhost:8080`
    under **SDK → Allowed origins** (and use the staging key).
 5. Check: open the dashboard, click around; **SDK** in Hub Admin shows **Receiving data**
    within a minute, and **Admin → Analytic → Plantation Rainfall Dashboard** lists users,
