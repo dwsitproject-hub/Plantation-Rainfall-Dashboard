@@ -16,6 +16,8 @@ services:
     environment:
       # Backend server, private address and port (deploy/staging/backend).
       BACKEND_URL: ${BACKEND_URL:?Set BACKEND_URL in deploy/staging/frontend/.env (copy .env.example)}
+      # Front proxy allowed to report the visitor's IP (production: the server's own nginx).
+      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1/32}
     ports:
       - "${FRONTEND_HOST_PORT:?Set FRONTEND_HOST_PORT in deploy/staging/frontend/.env (copy .env.example)}:8080"
     restart: unless-stopped
