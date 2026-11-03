@@ -503,21 +503,64 @@ content hashes.` in the build output), so browsers cache them safely.
 
 ### 6.4 Publish the domain (the server's own nginx)
 
-The site file is in the repository: `deploy/production/frontend/host-nginx/plantation-rainfall.conf`
-(port 80, `server_name plantation-rainfall.kpndomain.com`, forwards to `127.0.0.1:3070`, passes
-the original `Host` and overwrites `X-Real-IP` with the visitor's address).
+The server's own nginx is **shared**: it serves the DWS Hub and other apps on their own
+names. The site file `deploy/production/frontend/host-nginx/plantation-rainfall.conf` only
+answers requests for `plantation-rainfall.kpndomain.com` (port 80, no `default_server`, IPv4
+only), forwards them to `127.0.0.1:3070`, passes the original `Host` and overwrites `X-Real-IP`
+with the visitor's address. Nothing else in `/etc/nginx` is changed.
+
+**1. Read-only pre-check** (changes nothing; paste the output for review if in doubt):
+
+```bash
+echo "== listen forms on port 80/443"; nginx -T 2>/dev/null | grep -E '^\s*listen\s' | sed 's/^\s*//' | sort | uniq -c
+echo "== default servers"; nginx -T 2>/dev/null | grep -nE 'listen.*default_server' || echo "(none marked default_server)"
+echo "== names that could clash"; nginx -T 2>/dev/null | grep -nE 'server_name' | grep -iE 'plantation-rainfall|\*\.kpndomain|~' || echo "(no clash)"
+echo "== enabled sites (load order)"; ls -1 /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null
+echo "== includes"; grep -nE '^\s*include' /etc/nginx/nginx.conf
+echo "== ports"; ss -ltnp | grep -E ':(80|443|3070)\b'
+echo "== config valid before we start"; nginx -t
+```
+
+Proceed only if:
+
+| Check | Must show |
+| --- | --- |
+| listen forms | `listen 80;` among them (if every site uses `listen 172.28.80.50:80;`, change our file to that form) |
+| default servers | a site marked `default_server` for port 80 — then ours can never become the default. If none is marked, the first enabled site (alphabetical) is the default: make sure that is not ours (`plantation-rainfall.conf` sorts after names starting a–o) |
+| names that could clash | `(no clash)` |
+| ports | `127.0.0.1:3070` held by `docker-proxy` (our frontend, step 6.3), nothing else |
+| config valid | `test is successful` (if it already fails, stop: another app's config is broken) |
+
+**2. Note how the other apps answer now** (compare after step 3):
+
+```bash
+for host in dwshub.kpndomain.com $(nginx -T 2>/dev/null | awk '/server_name/{for(i=2;i<=NF;i++){gsub(";","",$i); if($i!="_" && $i!~/^~/ && $i!="localhost") print $i}}' | sort -u | grep -v plantation-rainfall); do
+  printf '%-45s http %s  https %s\n' "$host" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $host" http://127.0.0.1/)" \
+    "$(curl -sk -o /dev/null -w '%{http_code}' --resolve "$host:443:127.0.0.1" "https://$host/")"
+done | tee ~/nginx-before.txt
+curl -s -o /dev/null -w 'bare IP (default site) %{http_code}\n' http://127.0.0.1/ | tee -a ~/nginx-before.txt
+```
+
+**3. Install** (a reload is graceful: no dropped connections; if `nginx -t` fails, nothing changes):
 
 ```bash
 cp /opt/plantation-rainfall/deploy/production/frontend/host-nginx/plantation-rainfall.conf /etc/nginx/sites-available/
 ln -s /etc/nginx/sites-available/plantation-rainfall.conf /etc/nginx/sites-enabled/plantation-rainfall.conf
-nginx -t && systemctl reload nginx            # "syntax is ok" / "test is successful" first
+nginx -t && systemctl reload nginx
 curl -s -H 'Host: plantation-rainfall.kpndomain.com' http://127.0.0.1/healthz              # ok
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'Host: plantation-rainfall.kpndomain.com' http://127.0.0.1/   # 302 …/login.html
 ```
 
-`nginx -t` checks the whole configuration, including the other apps' sites, before the reload;
-if it reports an error, nothing is changed. Then open **http://plantation-rainfall.kpndomain.com/**
-from a PC: the dashboard's sign-in page (not "Cloud Agent Monitoring").
+**4. Confirm the other apps are unchanged:** run the loop from step 2 again into
+`~/nginx-after.txt` and compare: `diff ~/nginx-before.txt ~/nginx-after.txt` must print nothing.
+Then open **http://plantation-rainfall.kpndomain.com/** from a PC: the dashboard's sign-in page.
+
+**Undo** (if anything looks wrong):
+
+```bash
+rm /etc/nginx/sites-enabled/plantation-rainfall.conf && nginx -t && systemctl reload nginx
+```
 
 ---
 
