@@ -526,41 +526,72 @@ Proceed only if:
 | Check | Must show |
 | --- | --- |
 | listen forms | `listen 80;` among them (if every site uses `listen 172.28.80.50:80;`, change our file to that form) |
-| default servers | a site marked `default_server` for port 80 — then ours can never become the default. If none is marked, the first enabled site (alphabetical) is the default: make sure that is not ours (`plantation-rainfall.conf` sorts after names starting a–o) |
+| default servers | a site marked `default_server` for port 80 — then ours can never become the default. If none is marked, the first site loaded is the default: `nginx.conf` loads `conf.d/*.conf` **before** `sites-enabled/*`, so with any site in `conf.d` ours (in `sites-enabled`) can never be first |
 | names that could clash | `(no clash)` |
 | ports | `127.0.0.1:3070` held by `docker-proxy` (our frontend, step 6.3), nothing else |
 | config valid | `test is successful` (if it already fails, stop: another app's config is broken) |
 
-**2. Note how the other apps answer now** (compare after step 3):
+> Checked 3 Nov 2026 on `ECS-App`: 14 sites `listen 80;` (12 also `[::]:80`), none marked
+> `default_server`; `conf.d/cloud-monitoring.kpndomain.com.conf` loads first and is the default
+> site (the "Cloud Agent Monitoring" page), and ours loads later from `sites-enabled`, so it
+> cannot become the default for port 80 or 443. No name clash; `127.0.0.1:3070` held by our
+> frontend container; `nginx -t` successful. The existing warnings (`conflicting server name
+> "jettyplanning.energi-up.com"` / `"overtime-monitoring.kpndomain.com"`, `protocol options
+> redefined for [::]:443`) come from other apps' files and are not changed by this site: for
+> example `sites-enabled/jettyplanning.energi-up.com.conf.bak-2026-06-22` is loaded too, because
+> `sites-enabled/*` includes every file there. That is for those apps' owners to tidy.
+
+**2. Note how the other apps answer now** (compare after step 3). Run it only while
+`nginx -t` is successful; every request has a 5-second limit:
 
 ```bash
-for host in dwshub.kpndomain.com $(nginx -T 2>/dev/null | awk '/server_name/{for(i=2;i<=NF;i++){gsub(";","",$i); if($i!="_" && $i!~/^~/ && $i!="localhost") print $i}}' | sort -u | grep -v plantation-rainfall); do
-  printf '%-45s http %s  https %s\n' "$host" \
-    "$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $host" http://127.0.0.1/)" \
-    "$(curl -sk -o /dev/null -w '%{http_code}' --resolve "$host:443:127.0.0.1" "https://$host/")"
-done | tee ~/nginx-before.txt
-curl -s -o /dev/null -w 'bare IP (default site) %{http_code}\n' http://127.0.0.1/ | tee -a ~/nginx-before.txt
+snapshot() {
+  for host in $(nginx -T 2>/dev/null | sed 's/#.*//' | grep -oE '(^|[;{[:space:]])server_name[[:space:]]+[^;]+' \
+                | sed -E 's/.*server_name[[:space:]]+//' | tr -s ' \t' '\n' \
+                | grep -E '^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' | grep -v '^plantation-rainfall\.' | sort -u); do
+    printf '%-45s http %s  https %s\n' "$host" \
+      "$(curl -s -m 5 -o /dev/null -w '%{http_code}' -H "Host: $host" http://127.0.0.1/)" \
+      "$(curl -sk -m 5 -o /dev/null -w '%{http_code}' --resolve "$host:443:127.0.0.1" "https://$host/")"
+  done
+  printf '%-45s http %s\n' "(bare IP, default site)" "$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1/)"
+}
+snapshot | tee ~/nginx-before.txt
 ```
 
-**3. Install** (a reload is graceful: no dropped connections; if `nginx -t` fails, nothing changes):
+Expect one line per site name (about 15–20 names: `dwshub.kpndomain.com`, `klip.kpndomain.com`, …).
+
+**3. Install** (the site file comes with release `v1.0.1` or later: `git describe --tags`). The
+link is only kept if `nginx -t` passes; otherwise it is removed again and nothing is reloaded.
+A reload is graceful: no dropped connections.
 
 ```bash
-cp /opt/plantation-rainfall/deploy/production/frontend/host-nginx/plantation-rainfall.conf /etc/nginx/sites-available/
-ln -s /etc/nginx/sites-available/plantation-rainfall.conf /etc/nginx/sites-enabled/plantation-rainfall.conf
-nginx -t && systemctl reload nginx
-curl -s -H 'Host: plantation-rainfall.kpndomain.com' http://127.0.0.1/healthz              # ok
-curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'Host: plantation-rainfall.kpndomain.com' http://127.0.0.1/   # 302 …/login.html
+SITE=/opt/plantation-rainfall/deploy/production/frontend/host-nginx/plantation-rainfall.conf
+LINK=/etc/nginx/sites-enabled/plantation-rainfall.conf
+if [ ! -f "$SITE" ]; then
+  echo "STOP: $SITE is missing - check out the release that contains it first (git describe --tags)"
+else
+  cp "$SITE" /etc/nginx/sites-available/plantation-rainfall.conf
+  ln -sf /etc/nginx/sites-available/plantation-rainfall.conf "$LINK"
+  if nginx -t; then systemctl reload nginx && echo "INSTALLED and reloaded"
+  else rm -f "$LINK"; echo "STOP: nginx -t failed - link removed, nothing reloaded"; fi
+fi
+curl -s -m 5 -H 'Host: plantation-rainfall.kpndomain.com' http://127.0.0.1/healthz          # ok
+curl -s -m 5 -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'Host: plantation-rainfall.kpndomain.com' http://127.0.0.1/   # 302 …/login.html
 ```
 
-**4. Confirm the other apps are unchanged:** run the loop from step 2 again into
-`~/nginx-after.txt` and compare: `diff ~/nginx-before.txt ~/nginx-after.txt` must print nothing.
+**4. Confirm the other apps are unchanged:** `snapshot | tee ~/nginx-after.txt`, then
+`diff ~/nginx-before.txt ~/nginx-after.txt` must print nothing.
 Then open **http://plantation-rainfall.kpndomain.com/** from a PC: the dashboard's sign-in page.
 
 **Undo** (if anything looks wrong):
 
 ```bash
-rm /etc/nginx/sites-enabled/plantation-rainfall.conf && nginx -t && systemctl reload nginx
+rm -f /etc/nginx/sites-enabled/plantation-rainfall.conf && nginx -t && systemctl reload nginx
 ```
+
+> Never leave a link in `sites-enabled` that `nginx -t` rejects (for example one pointing at a
+> missing file): the running nginx keeps working, but every later `nginx -t` or reload on this
+> shared server fails, including other teams' changes and certbot's certificate renewals.
 
 ---
 
